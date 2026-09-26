@@ -1,12 +1,17 @@
-"""Neo4j connection and the Cypher that persists/reads the graph.
+"""Neo4j connection and the Cypher that persists/reads named, saved graphs.
 
-Each save replaces the whole graph with the one the frontend sent, which
-matches the "Save graph" button: it always sends every node and edge, not
-a diff.
+Each saved graph is a `:SavedGraph` node, identified by a generated id and a
+user-given name, with its own `:GraphNode`s hanging off it via `:HAS_NODE`.
+Saving under a name that already exists replaces that graph's nodes and
+edges (the frontend always sends a full snapshot, not a diff) but keeps its
+id, so it's still the same entry in the list. Saving under a new name adds a
+new entry instead of touching any other saved graph.
 """
 
 import json
 import os
+import uuid
+from datetime import datetime, timezone
 
 from neo4j import AsyncDriver, AsyncGraphDatabase
 
@@ -14,9 +19,11 @@ from backend.schemas import (
     GraphEdge,
     GraphNode,
     GraphNodeData,
-    GraphPayload,
+    NamedGraphPayload,
     NodeProperty,
     Position,
+    SaveGraphRequest,
+    SavedGraphSummary,
 )
 
 NEO4J_URI = os.environ.get("NEO4J_URI", "bolt://localhost:7687")
@@ -69,15 +76,41 @@ def _edge_params(edge: GraphEdge) -> dict:
         "relationship": edge.relationship,
         "bendX": edge.bend.x if edge.bend else None,
         "bendY": edge.bend.y if edge.bend else None,
+        "sourceHandle": edge.sourceHandle,
+        "targetHandle": edge.targetHandle,
     }
 
 
-async def _save_graph_tx(tx, nodes: list[dict], edges: list[dict]) -> None:
-    # Replace the previous graph entirely rather than diffing it, since the
-    # frontend always sends a full snapshot.
-    await tx.run("MATCH (n:GraphNode) DETACH DELETE n")
+async def _save_graph_tx(
+    tx, name: str, new_id: str, now: str, nodes: list[dict], edges: list[dict]
+) -> str:
+    result = await tx.run(
+        """
+        MERGE (g:SavedGraph {name: $name})
+        ON CREATE SET g.id = $newId, g.createdAt = $now
+        SET g.updatedAt = $now, g.nodeCount = $nodeCount, g.edgeCount = $edgeCount
+        RETURN g.id AS id
+        """,
+        name=name,
+        newId=new_id,
+        now=now,
+        nodeCount=len(nodes),
+        edgeCount=len(edges),
+    )
+    graph_id = (await result.single())["id"]
+
+    # Replace this graph's previous nodes/edges (DETACH DELETE also removes
+    # their RELATES_TO edges), without touching any other saved graph.
     await tx.run(
         """
+        MATCH (g:SavedGraph {id: $graphId})-[:HAS_NODE]->(old:GraphNode)
+        DETACH DELETE old
+        """,
+        graphId=graph_id,
+    )
+    await tx.run(
+        """
+        MATCH (g:SavedGraph {id: $graphId})
         UNWIND $nodes AS node
         CREATE (n:GraphNode {id: node.id})
         SET n.reactFlowType = node.reactFlowType,
@@ -87,34 +120,90 @@ async def _save_graph_tx(tx, nodes: list[dict], edges: list[dict]) -> None:
             n.entityType = node.entityType,
             n.description = node.description,
             n.propertiesJson = node.propertiesJson
+        MERGE (g)-[:HAS_NODE]->(n)
         """,
+        graphId=graph_id,
         nodes=nodes,
     )
     await tx.run(
         """
+        MATCH (g:SavedGraph {id: $graphId})
         UNWIND $edges AS edge
-        MATCH (source:GraphNode {id: edge.source})
-        MATCH (target:GraphNode {id: edge.target})
+        MATCH (g)-[:HAS_NODE]->(source:GraphNode {id: edge.source})
+        MATCH (g)-[:HAS_NODE]->(target:GraphNode {id: edge.target})
         CREATE (source)-[r:RELATES_TO {id: edge.id}]->(target)
         SET r.relationship = edge.relationship,
             r.bendX = edge.bendX,
-            r.bendY = edge.bendY
+            r.bendY = edge.bendY,
+            r.sourceHandle = edge.sourceHandle,
+            r.targetHandle = edge.targetHandle
         """,
+        graphId=graph_id,
         edges=edges,
     )
 
+    return graph_id
 
-async def save_graph(payload: GraphPayload) -> None:
-    node_params = [_node_params(node) for node in payload.nodes]
-    edge_params = [_edge_params(edge) for edge in payload.edges]
+
+async def save_graph(request: SaveGraphRequest) -> SavedGraphSummary:
+    node_params = [_node_params(node) for node in request.nodes]
+    edge_params = [_edge_params(edge) for edge in request.edges]
+    new_id = str(uuid.uuid4())
+    now = datetime.now(timezone.utc).isoformat()
+
     async with get_driver().session() as session:
-        await session.execute_write(_save_graph_tx, node_params, edge_params)
+        graph_id = await session.execute_write(
+            _save_graph_tx, request.name, new_id, now, node_params, edge_params
+        )
+
+    return SavedGraphSummary(
+        id=graph_id,
+        name=request.name,
+        updatedAt=now,
+        nodes=len(request.nodes),
+        edges=len(request.edges),
+    )
 
 
-async def _load_graph_tx(tx) -> GraphPayload:
+async def _list_graphs_tx(tx) -> list[SavedGraphSummary]:
+    records = await tx.run(
+        """
+        MATCH (g:SavedGraph)
+        RETURN g.id AS id, g.name AS name, g.updatedAt AS updatedAt,
+               g.nodeCount AS nodeCount, g.edgeCount AS edgeCount
+        ORDER BY g.updatedAt DESC
+        """
+    )
+    return [
+        SavedGraphSummary(
+            id=record["id"],
+            name=record["name"],
+            updatedAt=record["updatedAt"],
+            nodes=record["nodeCount"] or 0,
+            edges=record["edgeCount"] or 0,
+        )
+        async for record in records
+    ]
+
+
+async def list_graphs() -> list[SavedGraphSummary]:
+    async with get_driver().session() as session:
+        return await session.execute_read(_list_graphs_tx)
+
+
+async def _get_graph_tx(tx, graph_id: str) -> NamedGraphPayload | None:
+    header = await (
+        await tx.run(
+            "MATCH (g:SavedGraph {id: $graphId}) RETURN g.name AS name",
+            graphId=graph_id,
+        )
+    ).single()
+    if header is None:
+        return None
+
     node_records = await tx.run(
         """
-        MATCH (n:GraphNode)
+        MATCH (g:SavedGraph {id: $graphId})-[:HAS_NODE]->(n:GraphNode)
         RETURN n.id AS id,
                n.reactFlowType AS reactFlowType,
                n.positionX AS positionX,
@@ -123,7 +212,8 @@ async def _load_graph_tx(tx) -> GraphPayload:
                n.entityType AS entityType,
                n.description AS description,
                n.propertiesJson AS propertiesJson
-        """
+        """,
+        graphId=graph_id,
     )
     nodes = [
         GraphNode(
@@ -145,14 +235,18 @@ async def _load_graph_tx(tx) -> GraphPayload:
 
     edge_records = await tx.run(
         """
-        MATCH (source:GraphNode)-[r:RELATES_TO]->(target:GraphNode)
+        MATCH (g:SavedGraph {id: $graphId})-[:HAS_NODE]->(source:GraphNode)
+        MATCH (source)-[r:RELATES_TO]->(target:GraphNode)<-[:HAS_NODE]-(g)
         RETURN r.id AS id,
                source.id AS source,
                target.id AS target,
                r.relationship AS relationship,
                r.bendX AS bendX,
-               r.bendY AS bendY
-        """
+               r.bendY AS bendY,
+               r.sourceHandle AS sourceHandle,
+               r.targetHandle AS targetHandle
+        """,
+        graphId=graph_id,
     )
     edges = [
         GraphEdge(
@@ -165,13 +259,17 @@ async def _load_graph_tx(tx) -> GraphPayload:
                 if record["bendX"] is not None and record["bendY"] is not None
                 else None
             ),
+            sourceHandle=record["sourceHandle"],
+            targetHandle=record["targetHandle"],
         )
         async for record in edge_records
     ]
 
-    return GraphPayload(nodes=nodes, edges=edges)
+    return NamedGraphPayload(
+        id=graph_id, name=header["name"], nodes=nodes, edges=edges
+    )
 
 
-async def load_graph() -> GraphPayload:
+async def get_graph(graph_id: str) -> NamedGraphPayload | None:
     async with get_driver().session() as session:
-        return await session.execute_read(_load_graph_tx)
+        return await session.execute_read(_get_graph_tx, graph_id)

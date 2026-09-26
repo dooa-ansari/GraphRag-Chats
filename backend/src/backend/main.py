@@ -3,7 +3,12 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException
 
 from backend import neo4j_client
-from backend.schemas import GraphPayload, SaveGraphResponse
+from backend.schemas import (
+    NamedGraphPayload,
+    SaveGraphRequest,
+    SaveGraphResponse,
+    SavedGraphSummary,
+)
 
 
 @asynccontextmanager
@@ -31,17 +36,29 @@ async def health_check():
     return {"status": "ok", "neo4j": "connected"}
 
 
-@app.post("/save-graph", response_model=SaveGraphResponse)
-async def save_graph(payload: GraphPayload):
-    await neo4j_client.save_graph(payload)
+@app.post("/graphs", response_model=SaveGraphResponse)
+async def save_graph(payload: SaveGraphRequest):
+    if not payload.name.strip():
+        raise HTTPException(status_code=422, detail="Graph name is required")
+    summary = await neo4j_client.save_graph(payload)
     return SaveGraphResponse(
         message="Graph saved successfully",
         status="success",
-        nodes=len(payload.nodes),
-        edges=len(payload.edges),
+        id=summary.id,
+        name=summary.name,
+        nodes=summary.nodes,
+        edges=summary.edges,
     )
 
 
-@app.get("/graph", response_model=GraphPayload)
-async def get_graph():
-    return await neo4j_client.load_graph()
+@app.get("/graphs", response_model=list[SavedGraphSummary])
+async def list_graphs():
+    return await neo4j_client.list_graphs()
+
+
+@app.get("/graphs/{graph_id}", response_model=NamedGraphPayload)
+async def get_graph(graph_id: str):
+    graph = await neo4j_client.get_graph(graph_id)
+    if graph is None:
+        raise HTTPException(status_code=404, detail="Graph not found")
+    return graph

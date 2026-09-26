@@ -36,6 +36,36 @@ export const LINK_HANDLE_ID = 'link'
 export const LINK_UP_HANDLE_ID = 'link-up'
 export const IN_BOTTOM_HANDLE_ID = 'in-bottom'
 
+// Builds a React Flow edge from plain data — used both for a brand-new edge
+// (createGraphEdge) and for one loaded back from a saved graph, so both end up
+// styled and wired up identically.
+export function toFlowEdge(edge: {
+  id: string
+  source: string
+  target: string
+  relationship: string
+  bend?: XYPosition
+  sourceHandle?: string | null
+  targetHandle?: string | null
+}): GraphEdgeType {
+  return {
+    id: edge.id,
+    type: 'relationship',
+    source: edge.source,
+    target: edge.target,
+    sourceHandle: edge.sourceHandle,
+    targetHandle: edge.targetHandle,
+    // Arrowhead at the target end shows the direction of the relationship.
+    markerEnd: {
+      type: MarkerType.ArrowClosed,
+      width: 20,
+      height: 20,
+      color: EDGE_COLOR,
+    },
+    data: { relationship: edge.relationship, bend: edge.bend },
+  }
+}
+
 export function createGraphEdge(
   source: string,
   target: string,
@@ -49,23 +79,15 @@ export function createGraphEdge(
     relationship?: string
   } = {},
 ): GraphEdgeType {
-  return {
+  return toFlowEdge({
     // Random id, not `${source}-${target}`: two nodes can have several edges.
     id: uuidv4(),
-    type: 'relationship',
     source,
     target,
+    relationship,
     sourceHandle,
     targetHandle,
-    // Arrowhead at the target end shows the direction of the relationship.
-    markerEnd: {
-      type: MarkerType.ArrowClosed,
-      width: 20,
-      height: 20,
-      color: EDGE_COLOR,
-    },
-    data: { relationship },
-  }
+  })
 }
 
 export function createGraphNode(
@@ -78,6 +100,16 @@ export function createGraphNode(
     position,
     data,
   }
+}
+
+// Builds a React Flow node from a saved node (its `type` is always "graph",
+// but keeping it explicit here makes the field's origin clear at the call site).
+export function toFlowNode(node: {
+  id: string
+  position: XYPosition
+  data: GraphNodeData
+}): GraphNodeType {
+  return { id: node.id, type: 'graph', position: node.position, data: node.data }
 }
 
 export function defaultNodeData(index: number): GraphNodeData {

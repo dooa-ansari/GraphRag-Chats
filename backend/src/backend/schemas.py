@@ -1,8 +1,9 @@
 """Request/response shapes for the graph API.
 
-These mirror the JSON the frontend's "Save graph" button produces
-(see frontend-chats/src/App.tsx `saveGraph`), so the payload can be
-passed straight through to Neo4j without reshaping it first.
+The node/edge shapes mirror the JSON the frontend's React Flow graph builds
+(see frontend-chats/src/graph.ts), so a payload can be passed straight
+through to Neo4j, and a loaded graph passed straight back, without
+reshaping it on either side.
 """
 
 from pydantic import BaseModel
@@ -38,6 +39,11 @@ class GraphEdge(BaseModel):
     target: str
     relationship: str = ""
     bend: Position | None = None
+    # Which of a node's handles the edge is attached to (e.g. the "+" button vs
+    # the reverse-link "↑" button). Needed to redraw a loaded edge the same way
+    # it looked when it was saved.
+    sourceHandle: str | None = None
+    targetHandle: str | None = None
 
 
 class GraphPayload(BaseModel):
@@ -45,8 +51,27 @@ class GraphPayload(BaseModel):
     edges: list[GraphEdge]
 
 
+class SaveGraphRequest(GraphPayload):
+    name: str
+
+
+class NamedGraphPayload(GraphPayload):
+    id: str
+    name: str
+
+
 class SaveGraphResponse(BaseModel):
     message: str
     status: str
+    id: str
+    name: str
+    nodes: int
+    edges: int
+
+
+class SavedGraphSummary(BaseModel):
+    id: str
+    name: str
+    updatedAt: str
     nodes: int
     edges: int
