@@ -25,6 +25,7 @@ from backend.schemas import (
     Position,
     SaveGraphRequest,
     SavedGraphSummary,
+    SearchResultNode,
 )
 
 NEO4J_URI = os.environ.get("NEO4J_URI", "bolt://localhost:7687")
@@ -344,13 +345,16 @@ async def _save_node_embeddings_tx(
         return False
 
     # Written per node (not on the graph as a whole), so each node carries its
-    # own embedding, computed from that node's own text.
+    # own embedding, computed from that node's own text. The text itself is
+    # also stored (not just the vector) so search can hand the LLM the same
+    # relationship facts that went into the embedding, not just raw fields.
     await tx.run(
         """
         MATCH (g:SavedGraph {id: $graphId})
         UNWIND $pairs AS pair
         MATCH (g)-[:HAS_NODE]->(n:GraphNode {id: pair.id})
-        SET n.embedding = pair.embedding
+        SET n.embedding = pair.embedding,
+            n.embeddingText = pair.text
         """,
         graphId=graph_id,
         pairs=pairs,
@@ -359,16 +363,83 @@ async def _save_node_embeddings_tx(
 
 
 async def save_node_embeddings(
-    graph_id: str, node_ids: list[str], embeddings: list[list[float]]
+    graph_id: str,
+    node_ids: list[str],
+    texts: list[str],
+    embeddings: list[list[float]],
 ) -> bool:
     """Returns False if the graph id doesn't exist. Node ids that don't match
     any node in this graph (e.g. stale, from before a rename) are silently
     skipped rather than treated as an error."""
     pairs = [
-        {"id": node_id, "embedding": embedding}
-        for node_id, embedding in zip(node_ids, embeddings)
+        {"id": node_id, "text": text, "embedding": embedding}
+        for node_id, text, embedding in zip(node_ids, texts, embeddings)
     ]
     async with get_driver().session() as session:
         return await session.execute_write(
             _save_node_embeddings_tx, graph_id, pairs
+        )
+
+
+async def _search_graph_nodes_tx(
+    tx, graph_id: str, query_embedding: list[float], limit: int
+) -> list[SearchResultNode] | None:
+    exists = await (
+        await tx.run(
+            "MATCH (g:SavedGraph {id: $graphId}) RETURN g.id AS id", graphId=graph_id
+        )
+    ).single()
+    if exists is None:
+        return None
+
+    # The vector index spans every graph's nodes, so this over-fetches
+    # candidates from it, then keeps only the ones that belong to this graph
+    # and takes the top `limit` of those — rather than being able to filter
+    # by graph before the vector search itself.
+    overfetch = max(limit * 10, 50)
+    records = await tx.run(
+        """
+        CALL db.index.vector.queryNodes($indexName, $overfetch, $queryEmbedding)
+        YIELD node, score
+        MATCH (g:SavedGraph {id: $graphId})-[:HAS_NODE]->(node)
+        RETURN node.id AS id,
+               node.name AS name,
+               node.entityType AS type,
+               node.description AS description,
+               node.propertiesJson AS propertiesJson,
+               node.embeddingText AS embeddingText,
+               score
+        ORDER BY score DESC
+        LIMIT $limit
+        """,
+        indexName=NODE_EMBEDDING_INDEX,
+        overfetch=overfetch,
+        queryEmbedding=query_embedding,
+        graphId=graph_id,
+        limit=limit,
+    )
+    return [
+        SearchResultNode(
+            id=record["id"],
+            name=record["name"],
+            type=record["type"],
+            description=record["description"],
+            properties=[
+                NodeProperty(**item)
+                for item in json.loads(record["propertiesJson"] or "[]")
+            ],
+            score=record["score"],
+            embeddingText=record["embeddingText"],
+        )
+        async for record in records
+    ]
+
+
+async def search_graph_nodes(
+    graph_id: str, query_embedding: list[float], limit: int = 5
+) -> list[SearchResultNode] | None:
+    """Returns None if the graph id doesn't exist, so the caller can 404."""
+    async with get_driver().session() as session:
+        return await session.execute_read(
+            _search_graph_nodes_tx, graph_id, query_embedding, limit
         )

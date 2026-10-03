@@ -151,14 +151,56 @@ export function humanizeGraph(nodes: GraphNodeType[]): string {
   return nodes.map((node) => describeNode(node.data)).filter(Boolean).join(' ')
 }
 
+// A node's relationships to its directly connected neighbors, as sentences —
+// e.g. if Rashid --Father--> Dooa, Dooa's list includes "Rashid Father Dooa."
+// and Rashid's includes the same sentence too (each node describes every edge
+// touching it, regardless of which end it's on). Edges with no relationship
+// label, or whose other end has no name, are skipped.
+function describeNodeRelationships(
+  nodeId: string,
+  nodeName: string,
+  edges: GraphEdgeType[],
+  nodesById: Map<string, GraphNodeType>,
+): string[] {
+  const sentences: string[] = []
+  for (const edge of edges) {
+    const relationship = edge.data?.relationship.trim()
+    if (!relationship) continue
+
+    if (edge.source === nodeId) {
+      const targetName = nodesById.get(edge.target)?.data.name.trim()
+      if (targetName) sentences.push(`${nodeName} ${relationship} ${targetName}.`)
+    }
+    if (edge.target === nodeId) {
+      const sourceName = nodesById.get(edge.source)?.data.name.trim()
+      if (sourceName) sentences.push(`${sourceName} ${relationship} ${nodeName}.`)
+    }
+  }
+  return sentences
+}
+
 // One embedding input per node — each node gets its own vector, computed from
-// its own text (same sentence rules as humanizeGraph, just kept separate per
-// node instead of joined into one blob). Nodes with no name produce no text
-// (describeNode returns '') and are left out, since there'd be nothing to embed.
+// its own attributes (same sentence rules as humanizeGraph) plus, unlike
+// humanizeGraph, sentences for every edge touching it. Without this, a vector
+// search has no way to answer relationship questions ("who is X's father?"),
+// since a node's own attributes never mention who it's connected to. Nodes
+// with no name produce no text and are left out, since there'd be nothing to embed.
 export function nodeEmbeddingTexts(
   nodes: GraphNodeType[],
+  edges: GraphEdgeType[],
 ): Array<{ id: string; text: string }> {
+  const nodesById = new Map(nodes.map((node) => [node.id, node]))
   return nodes
-    .map((node) => ({ id: node.id, text: describeNode(node.data) }))
+    .map((node) => {
+      const own = describeNode(node.data)
+      if (!own) return { id: node.id, text: '' }
+      const relationships = describeNodeRelationships(
+        node.id,
+        node.data.name.trim(),
+        edges,
+        nodesById,
+      )
+      return { id: node.id, text: [own, ...relationships].join(' ') }
+    })
     .filter((entry) => entry.text)
 }

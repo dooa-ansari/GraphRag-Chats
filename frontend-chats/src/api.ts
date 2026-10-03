@@ -61,6 +61,23 @@ export type GenerateEmbeddingsResponse = {
   dimensions: number
 }
 
+export type SearchResultNode = {
+  id: string
+  name: string
+  type: string
+  description?: string | null
+  properties: Array<{ name: string; value: string }>
+  score: number
+}
+
+export type SearchResponse = {
+  query: string
+  results: SearchResultNode[]
+  // Null if there were no results to answer from, or the LLM call failed —
+  // results above still come back either way.
+  answer?: string | null
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`${API_BASE}${path}`, {
     headers: init?.body ? { 'Content-Type': 'application/json' } : undefined,
@@ -115,5 +132,12 @@ export function generateEmbeddings(
   return request(`/graphs/${encodeURIComponent(id)}/embeddings`, {
     method: 'POST',
     body: JSON.stringify({ nodes }),
+  })
+}
+
+export function searchGraph(id: string, query: string): Promise<SearchResponse> {
+  return request(`/graphs/${encodeURIComponent(id)}/search`, {
+    method: 'POST',
+    body: JSON.stringify({ query }),
   })
 }

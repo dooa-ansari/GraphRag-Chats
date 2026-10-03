@@ -13,6 +13,7 @@ import '@xyflow/react/dist/style.css'
 import Button from '../components/Button'
 import GraphNode from '../components/GraphNode'
 import RelationshipEdge from '../components/RelationshipEdge'
+import SearchPanel from '../components/SearchPanel'
 import {
   generateEmbeddings,
   getGraph,
@@ -274,7 +275,7 @@ function GraphEditorPage() {
 
   const generateEmbeddingsForGraph = useCallback(async () => {
     if (!id || isNew) return
-    const targets = nodeEmbeddingTexts(nodes)
+    const targets = nodeEmbeddingTexts(nodes, edges)
     if (targets.length === 0) {
       setEmbeddingState({ status: 'error', message: 'No named nodes to embed' })
       return
@@ -295,13 +296,17 @@ function GraphEditorPage() {
         message: error instanceof Error ? error.message : 'Failed to generate embeddings',
       })
     }
-  }, [id, isNew, nodes])
+  }, [id, isNew, nodes, edges])
 
   useEffect(() => {
     if (!embeddingState || embeddingState.status === 'generating') return
     const timer = setTimeout(() => setEmbeddingState(null), 4000)
     return () => clearTimeout(timer)
   }, [embeddingState])
+
+  // Search panel --------------------------------------------------------
+
+  const [searchOpen, setSearchOpen] = useState(false)
 
   if (loadState?.status === 'loading') {
     return (
@@ -435,6 +440,15 @@ function GraphEditorPage() {
                 {embeddingDimensions} dimensions each)
               </span>
             )}
+            <Button
+              variant="secondary"
+              onClick={() => setSearchOpen(true)}
+              disabled={isNew}
+              title={isNew ? 'Save the graph first' : undefined}
+            >
+              Search
+            </Button>
+
             {linking && (
               <span className="rounded-md bg-primary-100 px-3 py-2 text-sm text-primary-700">
                 {linking.direction === 'up'
@@ -483,6 +497,10 @@ function GraphEditorPage() {
             </p>
           </div>
         </div>
+      )}
+
+      {!isNew && id && (
+        <SearchPanel graphId={id} open={searchOpen} onClose={() => setSearchOpen(false)} />
       )}
     </div>
   )

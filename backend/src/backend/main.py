@@ -15,6 +15,9 @@ from backend.schemas import (
     SavedGraphSummary,
     SaveTextRequest,
     SaveTextResponse,
+    SearchRequest,
+    SearchResponse,
+    SearchResultNode,
 )
 
 
@@ -101,7 +104,9 @@ async def generate_embeddings(graph_id: str, payload: GenerateEmbeddingsRequest)
         raise HTTPException(status_code=502, detail=str(error)) from error
 
     node_ids = [node.id for node in payload.nodes]
-    found = await neo4j_client.save_node_embeddings(graph_id, node_ids, embeddings)
+    found = await neo4j_client.save_node_embeddings(
+        graph_id, node_ids, texts, embeddings
+    )
     if not found:
         raise HTTPException(status_code=404, detail="Graph not found")
 
@@ -111,3 +116,55 @@ async def generate_embeddings(graph_id: str, payload: GenerateEmbeddingsRequest)
         count=len(embeddings),
         dimensions=len(embeddings[0]),
     )
+
+
+def _format_context(results: list[SearchResultNode]) -> str:
+    lines = []
+    for result in results:
+        # Prefer the text that was actually embedded — it includes this
+        # node's relationships to other nodes, not just its own attributes.
+        # Only missing for a node embedded before that was tracked.
+        if result.embeddingText:
+            lines.append(f"- {result.embeddingText}")
+            continue
+        line = f"- {result.name} ({result.type})"
+        if result.description:
+            line += f": {result.description}"
+        if result.properties:
+            props = ", ".join(f"{p.name}={p.value}" for p in result.properties)
+            line += f" [{props}]"
+        lines.append(line)
+    return "\n".join(lines)
+
+
+@app.post("/graphs/{graph_id}/search", response_model=SearchResponse)
+async def search_graph(graph_id: str, payload: SearchRequest):
+    if not payload.query.strip():
+        raise HTTPException(status_code=422, detail="Query is required")
+
+    try:
+        (query_embedding,) = await openrouter_client.generate_embeddings(
+            [payload.query]
+        )
+    except openrouter_client.OpenRouterError as error:
+        raise HTTPException(status_code=502, detail=str(error)) from error
+
+    results = await neo4j_client.search_graph_nodes(
+        graph_id, query_embedding, payload.limit
+    )
+    if results is None:
+        raise HTTPException(status_code=404, detail="Graph not found")
+
+    # Synthesis is best-effort: the matched nodes above are the real result of
+    # this endpoint, and still come back even if the LLM call fails or there's
+    # nothing to ground an answer in.
+    answer = None
+    if results:
+        try:
+            answer = await openrouter_client.generate_answer(
+                payload.query, _format_context(results)
+            )
+        except openrouter_client.OpenRouterError as error:
+            logger.warning("Answer synthesis failed: %s", error)
+
+    return SearchResponse(query=payload.query, results=results, answer=answer)

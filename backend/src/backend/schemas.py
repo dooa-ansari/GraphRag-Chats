@@ -113,3 +113,31 @@ class GenerateEmbeddingsResponse(BaseModel):
     message: str
     count: int
     dimensions: int
+
+
+class SearchRequest(BaseModel):
+    query: str
+    limit: int = 5
+
+
+class SearchResultNode(BaseModel):
+    id: str
+    name: str
+    type: str
+    description: str | None = None
+    properties: list[NodeProperty] = []
+    # Cosine similarity between the query and this node, 1.0 = identical.
+    score: float
+    # The text that was actually embedded for this node (name/type/properties
+    # *and* its relationships to other nodes) — richer than the fields above
+    # alone, so answer synthesis has the relationship facts too, not just
+    # attributes. None for a node embedded before this field existed.
+    embeddingText: str | None = None
+
+
+class SearchResponse(BaseModel):
+    query: str
+    results: list[SearchResultNode]
+    # None if there were no results to ground an answer in, or if the LLM call
+    # itself failed — the node results above are still returned either way.
+    answer: str | None = None
