@@ -33,6 +33,7 @@ import {
   createGraphNode,
   defaultNodeData,
   humanizeGraph,
+  layoutGraph,
   nodeEmbeddingTexts,
   toFlowEdge,
   toFlowNode,
@@ -54,6 +55,17 @@ function FitViewToHighlight({ nodeIds }: { nodeIds: string[] }) {
     if (nodeIds.length === 0) return
     fitView({ nodes: nodeIds.map((nodeId) => ({ id: nodeId })), padding: 0.3, duration: 400 })
   }, [nodeIds, fitView])
+  return null
+}
+
+// Reframes the canvas after "Auto-arrange" moves every node. `version` just
+// needs to change — the new positions are already in the store by then.
+function FitViewOnLayout({ version }: { version: number }) {
+  const { fitView } = useReactFlow()
+  useEffect(() => {
+    if (version === 0) return
+    fitView({ padding: 0.2, duration: 400 })
+  }, [version, fitView])
   return null
 }
 
@@ -262,6 +274,13 @@ function GraphEditorPage() {
       ),
     ])
   }, [setNodes])
+
+  // Auto-arrange: re-lays out every node (dagre) so nothing overlaps.
+  const [layoutVersion, setLayoutVersion] = useState(0)
+  const autoArrange = useCallback(() => {
+    setNodes((current) => layoutGraph(current, edges))
+    setLayoutVersion((version) => version + 1)
+  }, [edges, setNodes])
 
   // Saving ------------------------------------------------------------------
 
@@ -518,7 +537,13 @@ function GraphEditorPage() {
                 </Link>
                 {/* Only needed for a graph's first node — the rest use the node's own "+". */}
                 {nodes.length === 0 && <Button onClick={addNode}>Add node</Button>}
-  
+
+                {nodes.length > 1 && (
+                  <Button variant="outline" onClick={autoArrange} title="Re-space nodes so they don't overlap">
+                    Auto-arrange
+                  </Button>
+                )}
+
                 <input
                   value={graphName}
                   onChange={(e) => setGraphName(e.target.value)}
@@ -658,6 +683,7 @@ function GraphEditorPage() {
               </Panel>
             )}
             <FitViewToHighlight nodeIds={highlightedIds} />
+            <FitViewOnLayout version={layoutVersion} />
             <Background />
             <Controls />
           </ReactFlow>

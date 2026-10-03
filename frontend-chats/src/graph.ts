@@ -1,3 +1,4 @@
+import dagre from '@dagrejs/dagre'
 import { MarkerType, type Edge, type Node, type XYPosition } from '@xyflow/react'
 import { v4 as uuidv4 } from 'uuid'
 
@@ -108,6 +109,44 @@ export function toFlowNode(node: {
 
 export function defaultNodeData(index: number): GraphNodeData {
   return { name: `Node ${index}`, type: 'Entity', properties: [] }
+}
+
+// Fallback size for a node React Flow hasn't measured yet (e.g. right after
+// load, before it's rendered once) — close to the card's actual size with a
+// couple of properties.
+const FALLBACK_NODE_WIDTH = 260
+const FALLBACK_NODE_HEIGHT = 220
+
+// Auto-arranges nodes into layers by relationship direction (dagre), so
+// large/generated graphs don't start out with overlapping cards. Keeps
+// each node's own id/data — only `position` changes.
+export function layoutGraph(
+  nodes: GraphNodeType[],
+  edges: GraphEdgeType[],
+): GraphNodeType[] {
+  const g = new dagre.graphlib.Graph()
+  g.setDefaultEdgeLabel(() => ({}))
+  g.setGraph({ rankdir: 'TB', nodesep: 80, ranksep: 120 })
+
+  for (const node of nodes) {
+    g.setNode(node.id, {
+      width: node.measured?.width ?? FALLBACK_NODE_WIDTH,
+      height: node.measured?.height ?? FALLBACK_NODE_HEIGHT,
+    })
+  }
+  for (const edge of edges) {
+    if (edge.source !== edge.target) g.setEdge(edge.source, edge.target)
+  }
+
+  dagre.layout(g)
+
+  return nodes.map((node) => {
+    const width = node.measured?.width ?? FALLBACK_NODE_WIDTH
+    const height = node.measured?.height ?? FALLBACK_NODE_HEIGHT
+    const { x, y } = g.node(node.id)
+    // dagre positions by center; React Flow positions by top-left corner.
+    return { ...node, position: { x: x - width / 2, y: y - height / 2 } }
+  })
 }
 
 // Turns one node's fields into plain sentences, e.g. "Dooa is a person. Dooa's age is 33."

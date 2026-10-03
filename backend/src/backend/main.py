@@ -21,6 +21,7 @@ from backend.schemas import (
     SearchResponse,
     SearchResultNode,
 )
+from backend.seed_data import SEED_GRAPHS
 
 
 @asynccontextmanager
@@ -30,6 +31,15 @@ async def lifespan(app: FastAPI):
         await neo4j_client.ensure_vector_index()
     except Exception:
         logger.warning("Could not ensure the vector index on startup", exc_info=True)
+
+    try:
+        if not await neo4j_client.has_any_saved_graph():
+            for graph in SEED_GRAPHS:
+                await neo4j_client.save_graph(graph)
+            logger.info("Seeded %d sample graph(s)", len(SEED_GRAPHS))
+    except Exception:
+        logger.warning("Could not seed sample data", exc_info=True)
+
     yield
     await neo4j_client.close_driver()
 

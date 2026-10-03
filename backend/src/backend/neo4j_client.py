@@ -223,6 +223,16 @@ async def list_graphs() -> list[SavedGraphSummary]:
         return await session.execute_read(_list_graphs_tx)
 
 
+async def _has_any_saved_graph_tx(tx) -> bool:
+    result = await tx.run("MATCH (g:SavedGraph) RETURN g.id AS id LIMIT 1")
+    return await result.single() is not None
+
+
+async def has_any_saved_graph() -> bool:
+    async with get_driver().session() as session:
+        return await session.execute_read(_has_any_saved_graph_tx)
+
+
 async def _get_graph_tx(tx, graph_id: str) -> NamedGraphPayload | None:
     header = await (
         await tx.run(
