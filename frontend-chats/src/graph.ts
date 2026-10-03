@@ -115,3 +115,50 @@ export function toFlowNode(node: {
 export function defaultNodeData(index: number): GraphNodeData {
   return { name: `Node ${index}`, type: 'Entity', properties: [] }
 }
+
+// Turns one node's fields into plain sentences, e.g. for a node named "Dooa"
+// of type "Person" with a property {name: "age", value: "33"}:
+// "Dooa is a person. Dooa's age is 33."
+function describeNode({ name, type, description, properties }: GraphNodeData): string {
+  const trimmedName = name.trim()
+  if (!trimmedName) return ''
+
+  const sentences: string[] = []
+  const trimmedType = type.trim()
+  if (trimmedType) {
+    const article = /^[aeiou]/i.test(trimmedType) ? 'an' : 'a'
+    sentences.push(`${trimmedName} is ${article} ${trimmedType.toLowerCase()}.`)
+  }
+  // Written as-is, not as an "X's description is ..." property sentence.
+  const trimmedDescription = description?.trim()
+  if (trimmedDescription) {
+    sentences.push(/[.!?]$/.test(trimmedDescription) ? trimmedDescription : `${trimmedDescription}.`)
+  }
+  for (const property of properties) {
+    const propertyName = property.name.trim()
+    const propertyValue = property.value.trim()
+    if (propertyName && propertyValue) {
+      sentences.push(`${trimmedName}'s ${propertyName} is ${propertyValue}.`)
+    }
+  }
+  return sentences.join(' ')
+}
+
+// Renders the current graph as plain English — for the "Generate text"/"View
+// text" buttons. Each node becomes a few sentences about its name, type,
+// description and properties. Edges aren't included.
+export function humanizeGraph(nodes: GraphNodeType[]): string {
+  return nodes.map((node) => describeNode(node.data)).filter(Boolean).join(' ')
+}
+
+// One embedding input per node — each node gets its own vector, computed from
+// its own text (same sentence rules as humanizeGraph, just kept separate per
+// node instead of joined into one blob). Nodes with no name produce no text
+// (describeNode returns '') and are left out, since there'd be nothing to embed.
+export function nodeEmbeddingTexts(
+  nodes: GraphNodeType[],
+): Array<{ id: string; text: string }> {
+  return nodes
+    .map((node) => ({ id: node.id, text: describeNode(node.data) }))
+    .filter((entry) => entry.text)
+}

@@ -1,18 +1,32 @@
+import logging
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException
 
-from backend import neo4j_client
+logger = logging.getLogger(__name__)
+
+from backend import neo4j_client, openrouter_client
 from backend.schemas import (
+    GenerateEmbeddingsRequest,
+    GenerateEmbeddingsResponse,
     NamedGraphPayload,
     SaveGraphRequest,
     SaveGraphResponse,
     SavedGraphSummary,
+    SaveTextRequest,
+    SaveTextResponse,
 )
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # Best-effort: if Neo4j isn't reachable yet, don't crash startup over it —
+    # /health already reports that degraded state, and every write path below
+    # works fine without the index (it just makes vector search possible).
+    try:
+        await neo4j_client.ensure_vector_index()
+    except Exception:
+        logger.warning("Could not ensure the vector index on startup", exc_info=True)
     yield
     await neo4j_client.close_driver()
 
@@ -62,3 +76,38 @@ async def get_graph(graph_id: str):
     if graph is None:
         raise HTTPException(status_code=404, detail="Graph not found")
     return graph
+
+
+@app.put("/graphs/{graph_id}/text", response_model=SaveTextResponse)
+async def save_graph_text(graph_id: str, payload: SaveTextRequest):
+    if not payload.text.strip():
+        raise HTTPException(status_code=422, detail="Text is required")
+    found = await neo4j_client.save_graph_text(graph_id, payload.text)
+    if not found:
+        raise HTTPException(status_code=404, detail="Graph not found")
+    return SaveTextResponse(status="success", message="Text saved")
+
+
+@app.post("/graphs/{graph_id}/embeddings", response_model=GenerateEmbeddingsResponse)
+async def generate_embeddings(graph_id: str, payload: GenerateEmbeddingsRequest):
+    if not payload.nodes:
+        raise HTTPException(status_code=422, detail="No nodes to embed")
+
+    # One batched request for every node's text, not one request per node.
+    texts = [node.text for node in payload.nodes]
+    try:
+        embeddings = await openrouter_client.generate_embeddings(texts)
+    except openrouter_client.OpenRouterError as error:
+        raise HTTPException(status_code=502, detail=str(error)) from error
+
+    node_ids = [node.id for node in payload.nodes]
+    found = await neo4j_client.save_node_embeddings(graph_id, node_ids, embeddings)
+    if not found:
+        raise HTTPException(status_code=404, detail="Graph not found")
+
+    return GenerateEmbeddingsResponse(
+        status="success",
+        message=f"Generated embeddings for {len(embeddings)} node(s)",
+        count=len(embeddings),
+        dimensions=len(embeddings[0]),
+    )

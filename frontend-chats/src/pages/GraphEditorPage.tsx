@@ -13,7 +13,13 @@ import '@xyflow/react/dist/style.css'
 import Button from '../components/Button'
 import GraphNode from '../components/GraphNode'
 import RelationshipEdge from '../components/RelationshipEdge'
-import { getGraph, saveGraph as apiSaveGraph, type GraphExport } from '../api'
+import {
+  generateEmbeddings,
+  getGraph,
+  saveGraph as apiSaveGraph,
+  saveGraphText,
+  type GraphExport,
+} from '../api'
 import { LinkContext, type LinkContextValue, type LinkDirection } from '../LinkContext'
 import {
   IN_BOTTOM_HANDLE_ID,
@@ -22,6 +28,8 @@ import {
   createGraphEdge,
   createGraphNode,
   defaultNodeData,
+  humanizeGraph,
+  nodeEmbeddingTexts,
   toFlowEdge,
   toFlowNode,
   type GraphEdgeType,
@@ -53,6 +61,8 @@ function GraphEditorPage() {
       setNodes([])
       setEdges([])
       setGraphName('')
+      setGeneratedText(null)
+      setEmbeddedNodeCount(null)
       setLoadState(null)
       return
     }
@@ -65,6 +75,10 @@ function GraphEditorPage() {
         setNodes(graph.nodes.map(toFlowNode))
         setEdges(graph.edges.map(toFlowEdge))
         setGraphName(graph.name)
+        setGeneratedText(graph.text ?? null)
+        const embeddedNodes = graph.nodes.filter((node) => node.embeddingDimensions)
+        setEmbeddedNodeCount(embeddedNodes.length)
+        setEmbeddingDimensions(embeddedNodes[0]?.embeddingDimensions ?? null)
         setLoadState(null)
       })
       .catch((error) => {
@@ -215,6 +229,80 @@ function GraphEditorPage() {
     return () => clearTimeout(timer)
   }, [saveState])
 
+  // Generating text for embeddings ---------------------------------------
+
+  const [generatedText, setGeneratedText] = useState<string | null>(null)
+  const [textState, setTextState] = useState<
+    { status: 'generating' } | { status: 'success' | 'error'; message: string } | null
+  >(null)
+  const [textModalOpen, setTextModalOpen] = useState(false)
+
+  const generateText = useCallback(async () => {
+    if (!id || isNew) return
+    const text = humanizeGraph(nodes)
+
+    setTextState({ status: 'generating' })
+    try {
+      await saveGraphText(id, text)
+      setGeneratedText(text)
+      setTextState({ status: 'success', message: 'Text generated and saved' })
+    } catch (error) {
+      setTextState({
+        status: 'error',
+        message: error instanceof Error ? error.message : 'Failed to generate text',
+      })
+    }
+  }, [id, isNew, nodes])
+
+  useEffect(() => {
+    if (!textState || textState.status === 'generating') return
+    const timer = setTimeout(() => setTextState(null), 4000)
+    return () => clearTimeout(timer)
+  }, [textState])
+
+  // Generating embeddings ------------------------------------------------
+  // One vector per node (not one for the whole graph): each node's own text
+  // is embedded separately, so each :GraphNode in Neo4j carries its own
+  // embedding — but still as a single batched OpenRouter call, not one call
+  // per node.
+
+  const [embeddedNodeCount, setEmbeddedNodeCount] = useState<number | null>(null)
+  const [embeddingDimensions, setEmbeddingDimensions] = useState<number | null>(null)
+  const [embeddingState, setEmbeddingState] = useState<
+    { status: 'generating' } | { status: 'success' | 'error'; message: string } | null
+  >(null)
+
+  const generateEmbeddingsForGraph = useCallback(async () => {
+    if (!id || isNew) return
+    const targets = nodeEmbeddingTexts(nodes)
+    if (targets.length === 0) {
+      setEmbeddingState({ status: 'error', message: 'No named nodes to embed' })
+      return
+    }
+
+    setEmbeddingState({ status: 'generating' })
+    try {
+      const result = await generateEmbeddings(id, targets)
+      setEmbeddedNodeCount(result.count)
+      setEmbeddingDimensions(result.dimensions)
+      setEmbeddingState({
+        status: 'success',
+        message: `Generated embeddings for ${result.count} node${result.count === 1 ? '' : 's'} (${result.dimensions} dimensions each)`,
+      })
+    } catch (error) {
+      setEmbeddingState({
+        status: 'error',
+        message: error instanceof Error ? error.message : 'Failed to generate embeddings',
+      })
+    }
+  }, [id, isNew, nodes])
+
+  useEffect(() => {
+    if (!embeddingState || embeddingState.status === 'generating') return
+    const timer = setTimeout(() => setEmbeddingState(null), 4000)
+    return () => clearTimeout(timer)
+  }, [embeddingState])
+
   if (loadState?.status === 'loading') {
     return (
       <div className="flex h-full w-full items-center justify-center text-gray-500">
@@ -249,7 +337,7 @@ function GraphEditorPage() {
           onNodeClick={onNodeClick}
           onPaneClick={() => setLinking(null)}
         >
-          <Panel position="top-left" className="flex items-start gap-2">
+          <Panel position="top-left" className="flex flex-wrap items-start gap-2">
             <Link
               to="/"
               className="inline-flex items-center rounded-md px-3 py-2 text-sm font-medium text-primary-700 hover:bg-primary-50"
@@ -284,6 +372,69 @@ function GraphEditorPage() {
                 {saveState.message}
               </span>
             )}
+
+            <Button
+              variant="outline"
+              onClick={generateText}
+              disabled={isNew || nodes.length === 0 || textState?.status === 'generating'}
+              title={isNew ? 'Save the graph first' : undefined}
+            >
+              {textState?.status === 'generating' ? 'Generating…' : 'Generate text'}
+            </Button>
+            <Button
+              variant="outline"
+              onClick={() => setTextModalOpen(true)}
+              disabled={!generatedText}
+            >
+              View text
+            </Button>
+
+            {textState && textState.status !== 'generating' && (
+              <span
+                className={`rounded-md px-3 py-2 text-sm ${
+                  textState.status === 'success'
+                    ? 'bg-secondary-100 text-secondary-700'
+                    : 'bg-red-100 text-red-700'
+                }`}
+              >
+                {textState.message}
+              </span>
+            )}
+
+            <Button
+              variant="outline"
+              onClick={generateEmbeddingsForGraph}
+              disabled={
+                isNew || nodes.length === 0 || embeddingState?.status === 'generating'
+              }
+              title={isNew ? 'Save the graph first' : undefined}
+            >
+              {embeddingState?.status === 'generating'
+                ? 'Generating…'
+                : embeddedNodeCount
+                  ? 'Regenerate embeddings'
+                  : 'Generate embeddings'}
+            </Button>
+
+            {embeddingState && embeddingState.status !== 'generating' && (
+              <span
+                className={`rounded-md px-3 py-2 text-sm ${
+                  embeddingState.status === 'success'
+                    ? 'bg-secondary-100 text-secondary-700'
+                    : 'bg-red-100 text-red-700'
+                }`}
+              >
+                {embeddingState.message}
+              </span>
+            )}
+            {/* No fresh success/error message right now (e.g. just after
+                loading a saved graph) — show what's already stored, if any. */}
+            {!embeddingState && !!embeddedNodeCount && (
+              <span className="rounded-md bg-secondary-100 px-3 py-2 text-sm text-secondary-700">
+                {embeddedNodeCount} node{embeddedNodeCount === 1 ? '' : 's'} embedded (
+                {embeddingDimensions} dimensions each)
+              </span>
+            )}
             {linking && (
               <span className="rounded-md bg-primary-100 px-3 py-2 text-sm text-primary-700">
                 {linking.direction === 'up'
@@ -297,6 +448,42 @@ function GraphEditorPage() {
           <Controls />
         </ReactFlow>
       </LinkContext.Provider>
+
+      {textModalOpen && generatedText && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+          onClick={() => setTextModalOpen(false)}
+        >
+          <div
+            className="flex max-h-[80vh] w-full max-w-xl flex-col rounded-lg bg-white p-5 shadow-xl"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="mb-3 flex items-center justify-between gap-4">
+              <h2 className="text-lg font-semibold text-gray-900">Generated text</h2>
+              <div className="flex items-center gap-2">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => navigator.clipboard.writeText(generatedText)}
+                >
+                  Copy
+                </Button>
+                <button
+                  type="button"
+                  aria-label="Close"
+                  onClick={() => setTextModalOpen(false)}
+                  className="cursor-pointer text-xl leading-none text-gray-400 hover:text-gray-600"
+                >
+                  ×
+                </button>
+              </div>
+            </div>
+            <p className="overflow-auto whitespace-pre-wrap text-sm text-gray-700">
+              {generatedText}
+            </p>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

@@ -31,6 +31,10 @@ class GraphNode(BaseModel):
     type: str
     position: Position
     data: GraphNodeData
+    # Length of this node's stored embedding vector, not the vector itself —
+    # enough to show "embedded" state without pulling ~1024 floats per node on
+    # every graph load. Response-only: ignored (and not required) on save.
+    embeddingDimensions: int | None = None
 
 
 class GraphEdge(BaseModel):
@@ -58,6 +62,10 @@ class SaveGraphRequest(GraphPayload):
 class NamedGraphPayload(GraphPayload):
     id: str
     name: str
+    # The "humanized" natural-language description generated client-side from
+    # this graph's nodes/edges, meant for viewing — separate from the per-node
+    # embedding text below. None until "Generate text" has been used at least once.
+    text: str | None = None
 
 
 class SaveGraphResponse(BaseModel):
@@ -75,3 +83,33 @@ class SavedGraphSummary(BaseModel):
     updatedAt: str
     nodes: int
     edges: int
+
+
+class SaveTextRequest(BaseModel):
+    text: str
+
+
+class SaveTextResponse(BaseModel):
+    status: str
+    message: str
+
+
+class NodeText(BaseModel):
+    """One node's embedding input — its id (to write the result back to the
+    right :GraphNode) and its humanized text (built client-side from that
+    node's own name/type/description/properties, same rules as "Generate
+    text" but per-node instead of for the whole graph)."""
+
+    id: str
+    text: str
+
+
+class GenerateEmbeddingsRequest(BaseModel):
+    nodes: list[NodeText]
+
+
+class GenerateEmbeddingsResponse(BaseModel):
+    status: str
+    message: str
+    count: int
+    dimensions: int

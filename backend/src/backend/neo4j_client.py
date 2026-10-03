@@ -15,6 +15,7 @@ from datetime import datetime, timezone
 
 from neo4j import AsyncDriver, AsyncGraphDatabase
 
+from backend.openrouter_client import EMBEDDING_DIMENSIONS
 from backend.schemas import (
     GraphEdge,
     GraphNode,
@@ -51,6 +52,29 @@ async def close_driver() -> None:
 
 async def verify_connectivity() -> None:
     await get_driver().verify_connectivity()
+
+
+NODE_EMBEDDING_INDEX = "node_embedding_index"
+
+
+async def ensure_vector_index() -> None:
+    """Creates the vector index on :GraphNode(embedding) if it doesn't already
+    exist — idempotent, so it's safe to call every startup rather than needing
+    a separate one-off setup step. Requires Neo4j 5.13+; this is available on
+    Community Edition despite some docs suggesting it's Enterprise-only (the
+    IF NOT EXISTS create above was verified directly against a live instance)."""
+    async with get_driver().session() as session:
+        await session.run(
+            f"""
+            CREATE VECTOR INDEX {NODE_EMBEDDING_INDEX} IF NOT EXISTS
+            FOR (n:GraphNode) ON (n.embedding)
+            OPTIONS {{indexConfig: {{
+                `vector.dimensions`: $dimensions,
+                `vector.similarity_function`: 'cosine'
+            }}}}
+            """,
+            dimensions=EMBEDDING_DIMENSIONS,
+        )
 
 
 def _node_params(node: GraphNode) -> dict:
@@ -99,20 +123,24 @@ async def _save_graph_tx(
     )
     graph_id = (await result.single())["id"]
 
-    # Replace this graph's previous nodes/edges (DETACH DELETE also removes
-    # their RELATES_TO edges), without touching any other saved graph.
+    # Drop nodes that are no longer part of the graph (this also removes their
+    # edges). Nodes that are still present are upserted by id via MERGE below
+    # rather than recreated, so properties this doesn't set — like a node's
+    # stored embedding — survive a re-save instead of being wiped every time.
     await tx.run(
         """
         MATCH (g:SavedGraph {id: $graphId})-[:HAS_NODE]->(old:GraphNode)
+        WHERE NOT old.id IN $keepIds
         DETACH DELETE old
         """,
         graphId=graph_id,
+        keepIds=[node["id"] for node in nodes],
     )
     await tx.run(
         """
         MATCH (g:SavedGraph {id: $graphId})
         UNWIND $nodes AS node
-        CREATE (n:GraphNode {id: node.id})
+        MERGE (n:GraphNode {id: node.id})
         SET n.reactFlowType = node.reactFlowType,
             n.positionX = node.positionX,
             n.positionY = node.positionY,
@@ -124,6 +152,17 @@ async def _save_graph_tx(
         """,
         graphId=graph_id,
         nodes=nodes,
+    )
+
+    # Edges don't carry anything (like embeddings) that a save should
+    # preserve, so it's simplest to just replace all of them outright.
+    await tx.run(
+        """
+        MATCH (g:SavedGraph {id: $graphId})-[:HAS_NODE]->(:GraphNode)
+              -[r:RELATES_TO]->(:GraphNode)<-[:HAS_NODE]-(g)
+        DELETE r
+        """,
+        graphId=graph_id,
     )
     await tx.run(
         """
@@ -194,7 +233,7 @@ async def list_graphs() -> list[SavedGraphSummary]:
 async def _get_graph_tx(tx, graph_id: str) -> NamedGraphPayload | None:
     header = await (
         await tx.run(
-            "MATCH (g:SavedGraph {id: $graphId}) RETURN g.name AS name",
+            "MATCH (g:SavedGraph {id: $graphId}) RETURN g.name AS name, g.text AS text",
             graphId=graph_id,
         )
     ).single()
@@ -211,7 +250,8 @@ async def _get_graph_tx(tx, graph_id: str) -> NamedGraphPayload | None:
                n.name AS name,
                n.entityType AS entityType,
                n.description AS description,
-               n.propertiesJson AS propertiesJson
+               n.propertiesJson AS propertiesJson,
+               size(n.embedding) AS embeddingDimensions
         """,
         graphId=graph_id,
     )
@@ -229,6 +269,7 @@ async def _get_graph_tx(tx, graph_id: str) -> NamedGraphPayload | None:
                     for item in json.loads(record["propertiesJson"] or "[]")
                 ],
             ),
+            embeddingDimensions=record["embeddingDimensions"],
         )
         async for record in node_records
     ]
@@ -266,10 +307,68 @@ async def _get_graph_tx(tx, graph_id: str) -> NamedGraphPayload | None:
     ]
 
     return NamedGraphPayload(
-        id=graph_id, name=header["name"], nodes=nodes, edges=edges
+        id=graph_id, name=header["name"], text=header["text"], nodes=nodes, edges=edges
     )
 
 
 async def get_graph(graph_id: str) -> NamedGraphPayload | None:
     async with get_driver().session() as session:
         return await session.execute_read(_get_graph_tx, graph_id)
+
+
+async def _save_graph_text_tx(tx, graph_id: str, text: str) -> bool:
+    result = await tx.run(
+        "MATCH (g:SavedGraph {id: $graphId}) SET g.text = $text RETURN g.id AS id",
+        graphId=graph_id,
+        text=text,
+    )
+    return await result.single() is not None
+
+
+async def save_graph_text(graph_id: str, text: str) -> bool:
+    """Stores the humanized text against the graph. Returns False if the graph
+    id doesn't exist, so the caller can turn that into a 404."""
+    async with get_driver().session() as session:
+        return await session.execute_write(_save_graph_text_tx, graph_id, text)
+
+
+async def _save_node_embeddings_tx(
+    tx, graph_id: str, pairs: list[dict]
+) -> bool:
+    exists = await (
+        await tx.run(
+            "MATCH (g:SavedGraph {id: $graphId}) RETURN g.id AS id", graphId=graph_id
+        )
+    ).single()
+    if exists is None:
+        return False
+
+    # Written per node (not on the graph as a whole), so each node carries its
+    # own embedding, computed from that node's own text.
+    await tx.run(
+        """
+        MATCH (g:SavedGraph {id: $graphId})
+        UNWIND $pairs AS pair
+        MATCH (g)-[:HAS_NODE]->(n:GraphNode {id: pair.id})
+        SET n.embedding = pair.embedding
+        """,
+        graphId=graph_id,
+        pairs=pairs,
+    )
+    return True
+
+
+async def save_node_embeddings(
+    graph_id: str, node_ids: list[str], embeddings: list[list[float]]
+) -> bool:
+    """Returns False if the graph id doesn't exist. Node ids that don't match
+    any node in this graph (e.g. stale, from before a rename) are silently
+    skipped rather than treated as an error."""
+    pairs = [
+        {"id": node_id, "embedding": embedding}
+        for node_id, embedding in zip(node_ids, embeddings)
+    ]
+    async with get_driver().session() as session:
+        return await session.execute_write(
+            _save_node_embeddings_tx, graph_id, pairs
+        )

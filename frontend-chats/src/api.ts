@@ -36,9 +36,29 @@ export type SavedGraphSummary = {
   edges: number
 }
 
-export type NamedGraphPayload = GraphExport & {
+export type NamedGraphNode = Pick<GraphNodeType, 'id' | 'type' | 'position' | 'data'> & {
+  // Set once "Generate embeddings" has stored a vector for this node.
+  embeddingDimensions?: number | null
+}
+
+export type NamedGraphPayload = {
   id: string
   name: string
+  nodes: NamedGraphNode[]
+  edges: GraphExportEdge[]
+  text?: string | null
+}
+
+export type SaveTextResponse = {
+  status: string
+  message: string
+}
+
+export type GenerateEmbeddingsResponse = {
+  status: string
+  message: string
+  count: number
+  dimensions: number
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
@@ -79,4 +99,21 @@ export function listGraphs(): Promise<SavedGraphSummary[]> {
 
 export function getGraph(id: string): Promise<NamedGraphPayload> {
   return request(`/graphs/${encodeURIComponent(id)}`)
+}
+
+export function saveGraphText(id: string, text: string): Promise<SaveTextResponse> {
+  return request(`/graphs/${encodeURIComponent(id)}/text`, {
+    method: 'PUT',
+    body: JSON.stringify({ text }),
+  })
+}
+
+export function generateEmbeddings(
+  id: string,
+  nodes: Array<{ id: string; text: string }>,
+): Promise<GenerateEmbeddingsResponse> {
+  return request(`/graphs/${encodeURIComponent(id)}/embeddings`, {
+    method: 'POST',
+    body: JSON.stringify({ nodes }),
+  })
 }
