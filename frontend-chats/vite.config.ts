@@ -1,6 +1,8 @@
 import tailwindcss from '@tailwindcss/vite'
 import react from '@vitejs/plugin-react'
-import { defineConfig } from 'vite'
+// vitest/config re-exports Vite's defineConfig, extended to also type-check
+// the `test` option below.
+import { defineConfig } from 'vitest/config'
 
 // https://vite.dev/config/
 export default defineConfig({
@@ -18,5 +20,11 @@ export default defineConfig({
         rewrite: (path) => path.replace(/^\/api/, ''),
       },
     },
+  },
+  test: {
+    // Vitest's default include pattern also matches *.spec.ts — which is
+    // what the Playwright suite under e2e/ uses, and Playwright's own
+    // test()/expect() don't run under Vitest.
+    include: ['src/**/*.{test,spec}.{ts,tsx}'],
   },
 })

@@ -555,6 +555,9 @@ function GraphEditorPage() {
                   variant="secondary"
                   onClick={saveGraph}
                   disabled={saveState?.status === 'saving' || !graphName.trim()}
+                  // Keeps a stable accessible name even while the visible
+                  // label cycles through the autosave countdown.
+                  aria-label="Save graph"
                 >
                   {saveState?.status === 'saving'
                     ? 'Saving…'
