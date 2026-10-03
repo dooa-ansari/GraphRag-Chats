@@ -61,6 +61,13 @@ export type GenerateEmbeddingsResponse = {
   dimensions: number
 }
 
+export type RelationshipFact = {
+  relationship: string
+  direction: 'outgoing' | 'incoming'
+  otherId: string
+  otherName: string
+}
+
 export type SearchResultNode = {
   id: string
   name: string
@@ -68,13 +75,14 @@ export type SearchResultNode = {
   description?: string | null
   properties: Array<{ name: string; value: string }>
   score: number
+  // Fetched live from Neo4j at search time, not from the embedding.
+  relationships: RelationshipFact[]
 }
 
 export type SearchResponse = {
   query: string
   results: SearchResultNode[]
-  // Null if there were no results to answer from, or the LLM call failed —
-  // results above still come back either way.
+  // Null if there were no results, or the LLM call failed.
   answer?: string | null
 }
 

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import {
   ReactFlow,
@@ -41,6 +41,8 @@ import {
 const nodeTypes = { graph: GraphNode }
 const edgeTypes = { relationship: RelationshipEdge }
 
+const AUTOSAVE_SECONDS = 15
+
 function GraphEditorPage() {
   // Route is /graphs/new for a blank canvas, or /graphs/:id for a saved one.
   const { id } = useParams<{ id: string }>()
@@ -50,6 +52,45 @@ function GraphEditorPage() {
   const [nodes, setNodes, onNodesChange] = useNodesState<GraphNodeType>([])
   const [edges, setEdges, onEdgesChange] = useEdgesState<GraphEdgeType>([])
   const [graphName, setGraphName] = useState('')
+
+  // Autosave ------------------------------------------------------------------
+  // Compares actual content, not array identity — React Flow replaces the
+  // nodes/edges arrays for non-edits too (measuring, selecting), which would
+  // otherwise misfire as a change.
+  const snapshotContent = useCallback(
+    (
+      snapNodes: GraphNodeType[],
+      snapEdges: GraphEdgeType[],
+      snapName: string,
+    ): string =>
+      JSON.stringify({
+        name: snapName,
+        nodes: snapNodes.map(({ id: nodeId, position, data }) => ({
+          id: nodeId,
+          position,
+          data,
+        })),
+        edges: snapEdges.map(
+          ({ id: edgeId, source, target, sourceHandle, targetHandle, data }) => ({
+            id: edgeId,
+            source,
+            target,
+            sourceHandle,
+            targetHandle,
+            data,
+          }),
+        ),
+      }),
+    [],
+  )
+
+  // Content as of the last load/save — dirty means "differs from this."
+  const baselineSnapshotRef = useRef('')
+  // Content as of the last check — lets a second edit be told apart from "no
+  // real change," so it still resets the countdown.
+  const lastSeenSnapshotRef = useRef('')
+  const [dirty, setDirty] = useState(false)
+  const [changeVersion, setChangeVersion] = useState(0)
 
   // Loading an existing graph -------------------------------------------------
 
@@ -65,6 +106,12 @@ function GraphEditorPage() {
       setGeneratedText(null)
       setEmbeddedNodeCount(null)
       setLoadState(null)
+      baselineSnapshotRef.current = lastSeenSnapshotRef.current = snapshotContent(
+        [],
+        [],
+        '',
+      )
+      setDirty(false)
       return
     }
 
@@ -73,14 +120,22 @@ function GraphEditorPage() {
     getGraph(id)
       .then((graph) => {
         if (cancelled) return
-        setNodes(graph.nodes.map(toFlowNode))
-        setEdges(graph.edges.map(toFlowEdge))
+        const loadedNodes = graph.nodes.map(toFlowNode)
+        const loadedEdges = graph.edges.map(toFlowEdge)
+        setNodes(loadedNodes)
+        setEdges(loadedEdges)
         setGraphName(graph.name)
         setGeneratedText(graph.text ?? null)
         const embeddedNodes = graph.nodes.filter((node) => node.embeddingDimensions)
         setEmbeddedNodeCount(embeddedNodes.length)
         setEmbeddingDimensions(embeddedNodes[0]?.embeddingDimensions ?? null)
         setLoadState(null)
+        baselineSnapshotRef.current = lastSeenSnapshotRef.current = snapshotContent(
+          loadedNodes,
+          loadedEdges,
+          graph.name,
+        )
+        setDirty(false)
       })
       .catch((error) => {
         if (cancelled) return
@@ -93,11 +148,24 @@ function GraphEditorPage() {
     return () => {
       cancelled = true
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- setNodes/setEdges are stable
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- setNodes/setEdges/snapshotContent are stable
   }, [id, isNew])
 
-  // Every link gets its own edge, so nodes that are already connected can be
-  // linked again, in either direction (each edge has its own relationship).
+  useEffect(() => {
+    const current = snapshotContent(nodes, edges, graphName)
+    if (current === lastSeenSnapshotRef.current) return // no real change, e.g. just a node being selected
+    lastSeenSnapshotRef.current = current
+
+    if (current === baselineSnapshotRef.current) {
+      setDirty(false)
+      return
+    }
+    setDirty(true)
+    // Bumped on every edit, even while already dirty, to restart the countdown.
+    setChangeVersion((version) => version + 1)
+  }, [nodes, edges, graphName, snapshotContent])
+
+  // Every link gets its own edge, so already-connected nodes can link again.
   const linkNodes = useCallback(
     (sourceId: string, targetId: string, direction: LinkDirection) => {
       setEdges((current) => [
@@ -131,8 +199,7 @@ function GraphEditorPage() {
     [],
   )
 
-  // Click-to-connect: click a node's blue "+" (or "↑" for a reverse link), then
-  // click the node to link to.
+  // Click-to-connect: click a node's "+" (or "↑"), then click the node to link to.
   const [linking, setLinking] = useState<LinkContextValue['linking']>(null)
 
   const linkContext = useMemo<LinkContextValue>(
@@ -211,9 +278,14 @@ function GraphEditorPage() {
         status: 'success',
         message: `Saved "${result.name}" (${result.nodes} node${result.nodes === 1 ? '' : 's'}, ${result.edges} edge${result.edges === 1 ? '' : 's'})`,
       })
-      // A brand-new graph now has a real id — move the URL onto it so the
-      // page (and the back button) reflect what's actually open, and so
-      // further saves under a different name don't lose this one's id.
+      // Re-baseline against what was just saved, not stale pre-save content.
+      baselineSnapshotRef.current = lastSeenSnapshotRef.current = snapshotContent(
+        nodes,
+        edges,
+        name,
+      )
+      setDirty(false)
+      // A brand-new graph now has a real id — move the URL onto it.
       if (isNew) navigate(`/graphs/${result.id}`, { replace: true })
     } catch (error) {
       setSaveState({
@@ -221,7 +293,29 @@ function GraphEditorPage() {
         message: error instanceof Error ? error.message : 'Save failed',
       })
     }
-  }, [graphName, nodes, edges, isNew, navigate])
+  }, [graphName, nodes, edges, isNew, navigate, snapshotContent])
+
+  // Autosaves AUTOSAVE_SECONDS after the graph goes dirty, resetting on each edit.
+  const [autosaveCountdown, setAutosaveCountdown] = useState<number | null>(null)
+
+  useEffect(() => {
+    if (!dirty || !graphName.trim() || saveState?.status === 'saving') {
+      setAutosaveCountdown(null)
+      return
+    }
+    setAutosaveCountdown(AUTOSAVE_SECONDS)
+    const interval = setInterval(() => {
+      setAutosaveCountdown((current) =>
+        current !== null && current > 0 ? current - 1 : current,
+      )
+    }, 1000)
+    return () => clearInterval(interval)
+    // changeVersion restarts the countdown on each edit; `dirty` alone can't.
+  }, [dirty, changeVersion, graphName, saveState?.status])
+
+  useEffect(() => {
+    if (autosaveCountdown === 0) saveGraph()
+  }, [autosaveCountdown, saveGraph])
 
   // The status message clears itself so it doesn't linger forever.
   useEffect(() => {
@@ -262,10 +356,7 @@ function GraphEditorPage() {
   }, [textState])
 
   // Generating embeddings ------------------------------------------------
-  // One vector per node (not one for the whole graph): each node's own text
-  // is embedded separately, so each :GraphNode in Neo4j carries its own
-  // embedding — but still as a single batched OpenRouter call, not one call
-  // per node.
+  // One vector per node, via a single batched OpenRouter call.
 
   const [embeddedNodeCount, setEmbeddedNodeCount] = useState<number | null>(null)
   const [embeddingDimensions, setEmbeddingDimensions] = useState<number | null>(null)
@@ -275,7 +366,7 @@ function GraphEditorPage() {
 
   const generateEmbeddingsForGraph = useCallback(async () => {
     if (!id || isNew) return
-    const targets = nodeEmbeddingTexts(nodes, edges)
+    const targets = nodeEmbeddingTexts(nodes)
     if (targets.length === 0) {
       setEmbeddingState({ status: 'error', message: 'No named nodes to embed' })
       return
@@ -296,7 +387,7 @@ function GraphEditorPage() {
         message: error instanceof Error ? error.message : 'Failed to generate embeddings',
       })
     }
-  }, [id, isNew, nodes, edges])
+  }, [id, isNew, nodes])
 
   useEffect(() => {
     if (!embeddingState || embeddingState.status === 'generating') return
@@ -342,112 +433,48 @@ function GraphEditorPage() {
           onNodeClick={onNodeClick}
           onPaneClick={() => setLinking(null)}
         >
-          <Panel position="top-left" className="flex flex-wrap items-start gap-2">
-            <Link
-              to="/"
-              className="inline-flex items-center rounded-md px-3 py-2 text-sm font-medium text-primary-700 hover:bg-primary-50"
-            >
-              ← All graphs
-            </Link>
-            <Button onClick={addNode}>Add node</Button>
-
-            <input
-              value={graphName}
-              onChange={(e) => setGraphName(e.target.value)}
-              placeholder="Graph name"
-              aria-label="Graph name"
-              className="rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-800 placeholder:text-gray-400 focus:border-primary-500 focus:outline-none"
-            />
-            <Button
-              variant="secondary"
-              onClick={saveGraph}
-              disabled={saveState?.status === 'saving' || !graphName.trim()}
-            >
-              {saveState?.status === 'saving' ? 'Saving…' : 'Save graph'}
-            </Button>
-
-            {saveState && saveState.status !== 'saving' && (
-              <span
-                className={`rounded-md px-3 py-2 text-sm ${
-                  saveState.status === 'success'
-                    ? 'bg-secondary-100 text-secondary-700'
-                    : 'bg-red-100 text-red-700'
-                }`}
+          <Panel position="top-left" className="flex flex-col items-start gap-2">
+            <div className="flex flex-wrap items-center gap-2">
+              <Link
+                to="/"
+                className="inline-flex items-center rounded-md px-3 py-2 text-sm font-medium text-primary-700 hover:bg-primary-50"
               >
-                {saveState.message}
-              </span>
-            )}
+                ← All graphs
+              </Link>
+              {/* Only needed for a graph's first node — the rest use the node's own "+". */}
+              {nodes.length === 0 && <Button onClick={addNode}>Add node</Button>}
 
-            <Button
-              variant="outline"
-              onClick={generateText}
-              disabled={isNew || nodes.length === 0 || textState?.status === 'generating'}
-              title={isNew ? 'Save the graph first' : undefined}
-            >
-              {textState?.status === 'generating' ? 'Generating…' : 'Generate text'}
-            </Button>
-            <Button
-              variant="outline"
-              onClick={() => setTextModalOpen(true)}
-              disabled={!generatedText}
-            >
-              View text
-            </Button>
-
-            {textState && textState.status !== 'generating' && (
-              <span
-                className={`rounded-md px-3 py-2 text-sm ${
-                  textState.status === 'success'
-                    ? 'bg-secondary-100 text-secondary-700'
-                    : 'bg-red-100 text-red-700'
-                }`}
+              <input
+                value={graphName}
+                onChange={(e) => setGraphName(e.target.value)}
+                placeholder="Graph name"
+                aria-label="Graph name"
+                className="rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-800 placeholder:text-gray-400 focus:border-primary-500 focus:outline-none"
+              />
+              <Button
+                variant="secondary"
+                onClick={saveGraph}
+                disabled={saveState?.status === 'saving' || !graphName.trim()}
               >
-                {textState.message}
-              </span>
-            )}
+                {saveState?.status === 'saving'
+                  ? 'Saving…'
+                  : autosaveCountdown !== null
+                    ? `Autosaving in ${autosaveCountdown}s…`
+                    : 'Save graph'}
+              </Button>
 
-            <Button
-              variant="outline"
-              onClick={generateEmbeddingsForGraph}
-              disabled={
-                isNew || nodes.length === 0 || embeddingState?.status === 'generating'
-              }
-              title={isNew ? 'Save the graph first' : undefined}
-            >
-              {embeddingState?.status === 'generating'
-                ? 'Generating…'
-                : embeddedNodeCount
-                  ? 'Regenerate embeddings'
-                  : 'Generate embeddings'}
-            </Button>
-
-            {embeddingState && embeddingState.status !== 'generating' && (
-              <span
-                className={`rounded-md px-3 py-2 text-sm ${
-                  embeddingState.status === 'success'
-                    ? 'bg-secondary-100 text-secondary-700'
-                    : 'bg-red-100 text-red-700'
-                }`}
-              >
-                {embeddingState.message}
-              </span>
-            )}
-            {/* No fresh success/error message right now (e.g. just after
-                loading a saved graph) — show what's already stored, if any. */}
-            {!embeddingState && !!embeddedNodeCount && (
-              <span className="rounded-md bg-secondary-100 px-3 py-2 text-sm text-secondary-700">
-                {embeddedNodeCount} node{embeddedNodeCount === 1 ? '' : 's'} embedded (
-                {embeddingDimensions} dimensions each)
-              </span>
-            )}
-            <Button
-              variant="secondary"
-              onClick={() => setSearchOpen(true)}
-              disabled={isNew}
-              title={isNew ? 'Save the graph first' : undefined}
-            >
-              Search
-            </Button>
+              {saveState && saveState.status !== 'saving' && (
+                <span
+                  className={`rounded-md px-3 py-2 text-sm ${
+                    saveState.status === 'success'
+                      ? 'bg-secondary-100 text-secondary-700'
+                      : 'bg-red-100 text-red-700'
+                  }`}
+                >
+                  {saveState.message}
+                </span>
+              )}
+            </div>
 
             {linking && (
               <span className="rounded-md bg-primary-100 px-3 py-2 text-sm text-primary-700">
@@ -458,6 +485,103 @@ function GraphEditorPage() {
               </span>
             )}
           </Panel>
+
+          {/* Search pipeline: text → embeddings → search. */}
+          {!isNew && (
+            <Panel position="bottom-center" className="mb-4">
+              <div className="flex flex-wrap items-center justify-center gap-2 rounded-lg border border-primary-200 bg-white px-3 py-2 shadow-lg">
+                <span className="text-xs font-semibold tracking-wide text-gray-400 uppercase">
+                  Prepare for search
+                </span>
+
+                <div className="flex items-center gap-1.5">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={generateText}
+                    disabled={nodes.length === 0 || textState?.status === 'generating'}
+                  >
+                    {textState?.status === 'generating'
+                      ? 'Generating…'
+                      : generatedText
+                        ? 'Regenerate text'
+                        : 'Generate text'}
+                  </Button>
+                  {/* Only once there's something to view — not just disabled. */}
+                  {generatedText && (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => setTextModalOpen(true)}
+                    >
+                      View text
+                    </Button>
+                  )}
+                </div>
+
+                <span className="text-gray-300">→</span>
+
+                <div className="flex items-center gap-1.5">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={generateEmbeddingsForGraph}
+                    disabled={
+                      nodes.length === 0 || embeddingState?.status === 'generating'
+                    }
+                  >
+                    {embeddingState?.status === 'generating'
+                      ? 'Generating…'
+                      : embeddedNodeCount
+                        ? 'Regenerate embeddings'
+                        : 'Generate embeddings'}
+                  </Button>
+                  {/* Hidden while a fresh success message already says the same thing. */}
+                  {!!embeddedNodeCount && embeddingState?.status !== 'success' && (
+                    <span
+                      className="rounded-full bg-secondary-100 px-2 py-0.5 text-xs font-medium text-secondary-700"
+                      title={
+                        embeddingDimensions
+                          ? `${embeddingDimensions} dimensions each`
+                          : undefined
+                      }
+                    >
+                      {embeddedNodeCount} embedded
+                    </span>
+                  )}
+                </div>
+
+                <span className="text-gray-300">→</span>
+
+                <Button variant="secondary" onClick={() => setSearchOpen(true)}>
+                  Search
+                </Button>
+
+                {textState && textState.status !== 'generating' && (
+                  <span
+                    className={`rounded-md px-3 py-2 text-sm ${
+                      textState.status === 'success'
+                        ? 'bg-secondary-100 text-secondary-700'
+                        : 'bg-red-100 text-red-700'
+                    }`}
+                  >
+                    {textState.message}
+                  </span>
+                )}
+                {embeddingState && embeddingState.status !== 'generating' && (
+                  <span
+                    className={`rounded-md px-3 py-2 text-sm ${
+                      embeddingState.status === 'success'
+                        ? 'bg-secondary-100 text-secondary-700'
+                        : 'bg-red-100 text-red-700'
+                    }`}
+                  >
+                    {embeddingState.message}
+                  </span>
+                )}
+              </div>
+            </Panel>
+          )}
           <Background />
           <Controls />
         </ReactFlow>

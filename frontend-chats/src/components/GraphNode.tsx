@@ -18,8 +18,7 @@ import {
 const CHILD_GAP_Y = 160
 const CHILD_SPACING_X = 340
 
-// `nodrag` / `nowheel` stop React Flow from dragging the node or zooming the
-// canvas while the user is interacting with a field.
+// `nodrag`/`nowheel` stop React Flow intercepting field interactions.
 const inputClass =
   'nodrag nowheel w-full rounded border border-gray-300 bg-white px-2 py-1 text-xs text-gray-800 ' +
   'placeholder:text-gray-400 focus:border-primary-500 focus:outline-none ' +
@@ -51,8 +50,7 @@ function GraphNode({ id, data }: NodeProps<GraphNodeType>) {
     const parent = getNode(id)
     if (!parent) return
 
-    // Place the child below the parent (using its rendered height) and spread
-    // siblings horizontally so they don't stack on top of each other.
+    // Spread siblings horizontally so they don't stack on top of each other.
     const siblings = getEdges().filter((edge) => edge.source === id).length
     const child = createGraphNode(
       {
@@ -153,8 +151,7 @@ function GraphNode({ id, data }: NodeProps<GraphNodeType>) {
         </button>
       </div>
 
-      {/* Drag from this blue "+" onto another node's top handle to add an edge,
-          even between nodes that are already connected. */}
+      {/* Drag onto another node's top handle to add an edge. */}
       <Handle
         id={LINK_HANDLE_ID}
         type="source"
@@ -170,8 +167,7 @@ function GraphNode({ id, data }: NodeProps<GraphNodeType>) {
         +
       </Handle>
 
-      {/* Reverse link (e.g. child to parent): leaves from this node's top and
-          arrives at the bottom of the node you pick. */}
+      {/* Reverse link: leaves from this node's top, arrives at the other's bottom. */}
       <Handle
         id={LINK_UP_HANDLE_ID}
         type="source"

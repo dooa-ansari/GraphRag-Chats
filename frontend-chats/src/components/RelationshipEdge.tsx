@@ -18,13 +18,11 @@ const OUTWARD: Record<Position, [number, number]> = {
   [Position.Right]: [1, 0],
 }
 
-// How far apart the control points of neighbouring parallel edges are pushed. The
-// curves' midpoints (where the inputs sit) end up 3/4 of this apart, which is
-// wider than a relationship input.
+// How far apart neighbouring parallel edges' control points are pushed.
 const PARALLEL_CURVE_BOW = 160
 
-// Edges are only bowed apart from others that run the same way between the same
-// two nodes; an edge in the opposite direction already uses different handles.
+// Only bow edges apart from others running the same way between the same two
+// nodes; the opposite direction already uses different handles.
 const isGroupMate = (
   edge: { source: string; target: string; sourceHandle?: string | null },
   source: string,
@@ -55,15 +53,12 @@ function RelationshipEdge({
   >()
   const dragging = useRef(false)
 
-  // The edge would end at the middle of the target handle, which is drawn over the
-  // arrowhead. Stop it just outside the handle so the arrow stays visible.
+  // Stop short of the handle's center so the arrowhead stays visible.
   const [outX, outY] = OUTWARD[targetPosition]
   const targetX = handleX + outX * ARROW_GAP
   const targetY = handleY + outY * ARROW_GAP
 
-  // Position of this edge among the edges running the same way between the same
-  // two nodes, and how many there are. Parallel edges bow out to different sides
-  // so they (and their inputs) don't sit on top of each other.
+  // This edge's position among same-direction parallels, so they bow apart.
   const goesUp = sourceHandleId === LINK_UP_HANDLE_ID
   const parallelIndex = useStore((state) =>
     state.edges
@@ -76,9 +71,8 @@ function RelationshipEdge({
         .length,
   )
 
-  // Bow each parallel edge sideways from the straight line between the nodes. The
-  // direction is measured from a fixed end (smaller id first) so the order of
-  // edges is stable.
+  // Bow sideways from the straight line between the nodes, measured from a
+  // fixed end (smaller id first) so the order is stable.
   const [ax, ay, bx, by] =
     source < target
       ? [sourceX, sourceY, targetX, targetY]
@@ -101,9 +95,7 @@ function RelationshipEdge({
   const c2X = targetX + outX * reach
   const c2Y = targetY + outY * reach
 
-  // Where the middle of the edge sits by default. A cubic Bézier's midpoint is
-  // (S + 3·C1 + 3·C2 + T) / 8, so moving both control points by `d` moves it by
-  // 3/4·d.
+  // Default midpoint: a cubic Bézier's midpoint is (S + 3·C1 + 3·C2 + T) / 8.
   const autoX = (sourceX + 3 * c1X + 3 * c2X + targetX) / 8 + bowX * 0.75
   const autoY = (sourceY + 3 * c1Y + 3 * c2Y + targetY) / 8 + bowY * 0.75
 
@@ -124,8 +116,7 @@ function RelationshipEdge({
       curvature: 0.4,
     })
   } else {
-    // Shift both control points so the curve's midpoint lands on the bowed and
-    // dragged position.
+    // Shift control points so the midpoint lands on the bowed/dragged position.
     const shiftX = bowX + ((bend?.x ?? 0) * 4) / 3
     const shiftY = bowY + ((bend?.y ?? 0) * 4) / 3
     path =

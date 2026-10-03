@@ -1,10 +1,7 @@
-"""Request/response shapes for the graph API.
+"""Request/response shapes for the graph API, mirroring the frontend's React
+Flow graph shape (see frontend-chats/src/graph.ts)."""
 
-The node/edge shapes mirror the JSON the frontend's React Flow graph builds
-(see frontend-chats/src/graph.ts), so a payload can be passed straight
-through to Neo4j, and a loaded graph passed straight back, without
-reshaping it on either side.
-"""
+from typing import Literal
 
 from pydantic import BaseModel
 
@@ -31,9 +28,7 @@ class GraphNode(BaseModel):
     type: str
     position: Position
     data: GraphNodeData
-    # Length of this node's stored embedding vector, not the vector itself —
-    # enough to show "embedded" state without pulling ~1024 floats per node on
-    # every graph load. Response-only: ignored (and not required) on save.
+    # Length of the stored embedding vector, not the vector itself. Response-only.
     embeddingDimensions: int | None = None
 
 
@@ -43,9 +38,7 @@ class GraphEdge(BaseModel):
     target: str
     relationship: str = ""
     bend: Position | None = None
-    # Which of a node's handles the edge is attached to (e.g. the "+" button vs
-    # the reverse-link "↑" button). Needed to redraw a loaded edge the same way
-    # it looked when it was saved.
+    # Which node handle the edge is attached to (e.g. "+" vs the "↑" reverse-link).
     sourceHandle: str | None = None
     targetHandle: str | None = None
 
@@ -62,9 +55,8 @@ class SaveGraphRequest(GraphPayload):
 class NamedGraphPayload(GraphPayload):
     id: str
     name: str
-    # The "humanized" natural-language description generated client-side from
-    # this graph's nodes/edges, meant for viewing — separate from the per-node
-    # embedding text below. None until "Generate text" has been used at least once.
+    # Humanized whole-graph description for viewing (separate from per-node
+    # embedding text). None until "Generate text" has been used.
     text: str | None = None
 
 
@@ -95,10 +87,7 @@ class SaveTextResponse(BaseModel):
 
 
 class NodeText(BaseModel):
-    """One node's embedding input — its id (to write the result back to the
-    right :GraphNode) and its humanized text (built client-side from that
-    node's own name/type/description/properties, same rules as "Generate
-    text" but per-node instead of for the whole graph)."""
+    """One node's embedding input: its id and its humanized text."""
 
     id: str
     text: str
@@ -120,6 +109,15 @@ class SearchRequest(BaseModel):
     limit: int = 5
 
 
+class RelationshipFact(BaseModel):
+    """One edge touching a matched node, read live from Neo4j at search time."""
+
+    relationship: str
+    direction: Literal["outgoing", "incoming"]
+    otherId: str
+    otherName: str
+
+
 class SearchResultNode(BaseModel):
     id: str
     name: str
@@ -128,16 +126,14 @@ class SearchResultNode(BaseModel):
     properties: list[NodeProperty] = []
     # Cosine similarity between the query and this node, 1.0 = identical.
     score: float
-    # The text that was actually embedded for this node (name/type/properties
-    # *and* its relationships to other nodes) — richer than the fields above
-    # alone, so answer synthesis has the relationship facts too, not just
-    # attributes. None for a node embedded before this field existed.
+    # The text actually embedded for this node (attributes only).
     embeddingText: str | None = None
+    # This node's edges, fetched fresh from Neo4j for this search.
+    relationships: list[RelationshipFact] = []
 
 
 class SearchResponse(BaseModel):
     query: str
     results: list[SearchResultNode]
-    # None if there were no results to ground an answer in, or if the LLM call
-    # itself failed — the node results above are still returned either way.
+    # None if there were no results, or the LLM call failed.
     answer: str | None = None

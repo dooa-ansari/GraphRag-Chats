@@ -15,8 +15,6 @@ EMBEDDING_MODEL = "liquid/lfm-2.5-embedding-350m:free"
 EMBEDDING_DIMENSIONS = 1024
 
 # Free-tier chat model, used to synthesize an answer from retrieved nodes.
-# Same family as the embedding model, also free; OpenRouter's own listing
-# describes it as suited for RAG specifically.
 CHAT_MODEL = "liquid/lfm-2.5-2.6b:free"
 
 
@@ -26,9 +24,7 @@ class OpenRouterError(RuntimeError):
 
 
 async def generate_embeddings(texts: list[str]) -> list[list[float]]:
-    """One batched call for all of `texts`, returned in the same order — not
-    one call per text, so embedding a whole graph's nodes costs a single
-    request."""
+    """One batched call for all of `texts`, returned in the same order."""
     if not texts:
         return []
     if not OPENROUTER_API_KEY:

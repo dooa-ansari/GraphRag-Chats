@@ -30,6 +30,17 @@ function ResultCard({ result }: { result: SearchResultNode }) {
           ))}
         </dl>
       )}
+      {result.relationships.length > 0 && (
+        <div className="mt-2 border-t border-primary-100 pt-1.5 text-xs text-gray-700">
+          {result.relationships.map((rel, index) => (
+            <div key={index}>
+              {rel.direction === 'outgoing'
+                ? `→ ${rel.relationship} → ${rel.otherName}`
+                : `← ${rel.relationship} ← ${rel.otherName}`}
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   )
 }
@@ -93,9 +104,7 @@ function SearchPanel({
     }
   }
 
-  // A real portal — rendered straight onto <body>, outside React Flow's own
-  // DOM subtree (and its CSS transform/stacking context), not just visually
-  // positioned over it.
+  // A real portal, rendered onto <body>, outside React Flow's own DOM subtree.
   return createPortal(
     <div
       aria-hidden={!open}

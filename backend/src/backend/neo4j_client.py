@@ -1,11 +1,8 @@
 """Neo4j connection and the Cypher that persists/reads named, saved graphs.
 
-Each saved graph is a `:SavedGraph` node, identified by a generated id and a
-user-given name, with its own `:GraphNode`s hanging off it via `:HAS_NODE`.
-Saving under a name that already exists replaces that graph's nodes and
-edges (the frontend always sends a full snapshot, not a diff) but keeps its
-id, so it's still the same entry in the list. Saving under a new name adds a
-new entry instead of touching any other saved graph.
+Each saved graph is a `:SavedGraph` node with its own `:GraphNode`s hanging
+off it via `:HAS_NODE`. Saving under an existing name replaces that graph's
+content but keeps its id; a new name adds a separate entry.
 """
 
 import json
@@ -59,11 +56,8 @@ NODE_EMBEDDING_INDEX = "node_embedding_index"
 
 
 async def ensure_vector_index() -> None:
-    """Creates the vector index on :GraphNode(embedding) if it doesn't already
-    exist — idempotent, so it's safe to call every startup rather than needing
-    a separate one-off setup step. Requires Neo4j 5.13+; this is available on
-    Community Edition despite some docs suggesting it's Enterprise-only (the
-    IF NOT EXISTS create above was verified directly against a live instance)."""
+    """Idempotent: creates the vector index on :GraphNode(embedding) if it
+    doesn't exist yet. Requires Neo4j 5.13+ (works on Community Edition)."""
     async with get_driver().session() as session:
         await session.run(
             f"""
@@ -124,10 +118,9 @@ async def _save_graph_tx(
     )
     graph_id = (await result.single())["id"]
 
-    # Drop nodes that are no longer part of the graph (this also removes their
-    # edges). Nodes that are still present are upserted by id via MERGE below
-    # rather than recreated, so properties this doesn't set — like a node's
-    # stored embedding — survive a re-save instead of being wiped every time.
+    # Drop nodes no longer in the graph; keep the rest upserted via MERGE (not
+    # recreated), so properties this doesn't set — like a stored embedding —
+    # survive a re-save.
     await tx.run(
         """
         MATCH (g:SavedGraph {id: $graphId})-[:HAS_NODE]->(old:GraphNode)
@@ -155,8 +148,7 @@ async def _save_graph_tx(
         nodes=nodes,
     )
 
-    # Edges don't carry anything (like embeddings) that a save should
-    # preserve, so it's simplest to just replace all of them outright.
+    # Edges carry nothing worth preserving, so just replace them outright.
     await tx.run(
         """
         MATCH (g:SavedGraph {id: $graphId})-[:HAS_NODE]->(:GraphNode)
@@ -327,8 +319,7 @@ async def _save_graph_text_tx(tx, graph_id: str, text: str) -> bool:
 
 
 async def save_graph_text(graph_id: str, text: str) -> bool:
-    """Stores the humanized text against the graph. Returns False if the graph
-    id doesn't exist, so the caller can turn that into a 404."""
+    """Returns False if the graph id doesn't exist."""
     async with get_driver().session() as session:
         return await session.execute_write(_save_graph_text_tx, graph_id, text)
 
@@ -344,10 +335,7 @@ async def _save_node_embeddings_tx(
     if exists is None:
         return False
 
-    # Written per node (not on the graph as a whole), so each node carries its
-    # own embedding, computed from that node's own text. The text itself is
-    # also stored (not just the vector) so search can hand the LLM the same
-    # relationship facts that went into the embedding, not just raw fields.
+    # Stores both the vector and the text it was computed from.
     await tx.run(
         """
         MATCH (g:SavedGraph {id: $graphId})
@@ -368,9 +356,8 @@ async def save_node_embeddings(
     texts: list[str],
     embeddings: list[list[float]],
 ) -> bool:
-    """Returns False if the graph id doesn't exist. Node ids that don't match
-    any node in this graph (e.g. stale, from before a rename) are silently
-    skipped rather than treated as an error."""
+    """Returns False if the graph id doesn't exist. Stale node ids are
+    silently skipped rather than treated as an error."""
     pairs = [
         {"id": node_id, "text": text, "embedding": embedding}
         for node_id, text, embedding in zip(node_ids, texts, embeddings)
@@ -392,10 +379,7 @@ async def _search_graph_nodes_tx(
     if exists is None:
         return None
 
-    # The vector index spans every graph's nodes, so this over-fetches
-    # candidates from it, then keeps only the ones that belong to this graph
-    # and takes the top `limit` of those — rather than being able to filter
-    # by graph before the vector search itself.
+    # The index spans every graph, so over-fetch then filter to this one.
     overfetch = max(limit * 10, 50)
     records = await tx.run(
         """
@@ -442,4 +426,41 @@ async def search_graph_nodes(
     async with get_driver().session() as session:
         return await session.execute_read(
             _search_graph_nodes_tx, graph_id, query_embedding, limit
+        )
+
+
+async def _get_node_relationships_tx(
+    tx, graph_id: str, node_ids: list[str]
+) -> list[dict]:
+    records = await tx.run(
+        """
+        MATCH (g:SavedGraph {id: $graphId})
+        MATCH (g)-[:HAS_NODE]->(a:GraphNode)-[r:RELATES_TO]->(b:GraphNode)<-[:HAS_NODE]-(g)
+        WHERE a.id IN $nodeIds OR b.id IN $nodeIds
+        RETURN a.id AS fromId, a.name AS fromName,
+               r.relationship AS relationship,
+               b.id AS toId, b.name AS toName
+        """,
+        graphId=graph_id,
+        nodeIds=node_ids,
+    )
+    return [
+        {
+            "fromId": record["fromId"],
+            "fromName": record["fromName"],
+            "relationship": record["relationship"],
+            "toId": record["toId"],
+            "toName": record["toName"],
+        }
+        async for record in records
+    ]
+
+
+async def get_node_relationships(graph_id: str, node_ids: list[str]) -> list[dict]:
+    """Every edge touching any of `node_ids`, read fresh from the graph."""
+    if not node_ids:
+        return []
+    async with get_driver().session() as session:
+        return await session.execute_read(
+            _get_node_relationships_tx, graph_id, node_ids
         )

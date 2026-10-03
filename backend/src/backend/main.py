@@ -1,4 +1,5 @@
 import logging
+from collections import defaultdict
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException
@@ -10,6 +11,7 @@ from backend.schemas import (
     GenerateEmbeddingsRequest,
     GenerateEmbeddingsResponse,
     NamedGraphPayload,
+    RelationshipFact,
     SaveGraphRequest,
     SaveGraphResponse,
     SavedGraphSummary,
@@ -23,9 +25,7 @@ from backend.schemas import (
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Best-effort: if Neo4j isn't reachable yet, don't crash startup over it —
-    # /health already reports that degraded state, and every write path below
-    # works fine without the index (it just makes vector search possible).
+    # Best-effort: don't crash startup if Neo4j isn't reachable yet.
     try:
         await neo4j_client.ensure_vector_index()
     except Exception:
@@ -118,22 +118,54 @@ async def generate_embeddings(graph_id: str, payload: GenerateEmbeddingsRequest)
     )
 
 
+async def _attach_relationships(
+    graph_id: str, results: list[SearchResultNode]
+) -> None:
+    """Hybrid retrieval: fills in each matched node's relationships with a
+    live Neo4j traversal, not from the embedding."""
+    rows = await neo4j_client.get_node_relationships(
+        graph_id, [result.id for result in results]
+    )
+    by_node: dict[str, list[RelationshipFact]] = defaultdict(list)
+    for row in rows:
+        by_node[row["fromId"]].append(
+            RelationshipFact(
+                relationship=row["relationship"],
+                direction="outgoing",
+                otherId=row["toId"],
+                otherName=row["toName"],
+            )
+        )
+        by_node[row["toId"]].append(
+            RelationshipFact(
+                relationship=row["relationship"],
+                direction="incoming",
+                otherId=row["fromId"],
+                otherName=row["fromName"],
+            )
+        )
+    for result in results:
+        result.relationships = by_node.get(result.id, [])
+
+
 def _format_context(results: list[SearchResultNode]) -> str:
     lines = []
     for result in results:
-        # Prefer the text that was actually embedded — it includes this
-        # node's relationships to other nodes, not just its own attributes.
-        # Only missing for a node embedded before that was tracked.
         if result.embeddingText:
             lines.append(f"- {result.embeddingText}")
-            continue
-        line = f"- {result.name} ({result.type})"
-        if result.description:
-            line += f": {result.description}"
-        if result.properties:
-            props = ", ".join(f"{p.name}={p.value}" for p in result.properties)
-            line += f" [{props}]"
-        lines.append(line)
+        else:
+            line = f"- {result.name} ({result.type})"
+            if result.description:
+                line += f": {result.description}"
+            if result.properties:
+                props = ", ".join(f"{p.name}={p.value}" for p in result.properties)
+                line += f" [{props}]"
+            lines.append(line)
+        for rel in result.relationships:
+            if rel.direction == "outgoing":
+                lines.append(f"  {result.name} {rel.relationship} {rel.otherName}.")
+            else:
+                lines.append(f"  {rel.otherName} {rel.relationship} {result.name}.")
     return "\n".join(lines)
 
 
@@ -155,9 +187,10 @@ async def search_graph(graph_id: str, payload: SearchRequest):
     if results is None:
         raise HTTPException(status_code=404, detail="Graph not found")
 
-    # Synthesis is best-effort: the matched nodes above are the real result of
-    # this endpoint, and still come back even if the LLM call fails or there's
-    # nothing to ground an answer in.
+    if results:
+        await _attach_relationships(graph_id, results)
+
+    # Synthesis is best-effort — results still come back even if it fails.
     answer = None
     if results:
         try:

@@ -1,7 +1,5 @@
-// Split out from Button.tsx so that file exports only the component (keeps
-// Fast Refresh working) while still letting non-<button> elements — like a
-// react-router `Link`, which needs a real `<a>` for proper navigation
-// semantics — look identical to a Button.
+// Split out from Button.tsx so a non-<button> element (e.g. a react-router
+// `Link`) can look identical to one.
 
 export type ButtonVariant = 'primary' | 'secondary' | 'outline'
 export type ButtonSize = 'sm' | 'md' | 'lg'
