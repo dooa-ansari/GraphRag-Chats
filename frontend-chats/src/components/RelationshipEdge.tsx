@@ -1,4 +1,4 @@
-import { useRef, type PointerEvent } from 'react'
+import { useContext, useRef, type PointerEvent } from 'react'
 import {
   BaseEdge,
   EdgeLabelRenderer,
@@ -8,7 +8,10 @@ import {
   useStore,
   type EdgeProps,
 } from '@xyflow/react'
+import { HighlightContext } from '../HighlightContext'
 import { EDGE_COLOR, LINK_UP_HANDLE_ID, type GraphEdgeType } from '../graph'
+
+const HIGHLIGHT_EDGE_COLOR = '#f59e0b' // amber — distinct from the normal blue
 
 const ARROW_GAP = 10
 const OUTWARD: Record<Position, [number, number]> = {
@@ -52,6 +55,8 @@ function RelationshipEdge({
     GraphEdgeType
   >()
   const dragging = useRef(false)
+  const { highlightedEdgeIds } = useContext(HighlightContext)
+  const isHighlighted = highlightedEdgeIds.has(id)
 
   // Stop short of the handle's center so the arrowhead stays visible.
   const [outX, outY] = OUTWARD[targetPosition]
@@ -154,7 +159,10 @@ function RelationshipEdge({
         id={id}
         path={path}
         markerEnd={markerEnd}
-        style={{ stroke: EDGE_COLOR, strokeWidth: 1.5 }}
+        style={{
+          stroke: isHighlighted ? HIGHLIGHT_EDGE_COLOR : EDGE_COLOR,
+          strokeWidth: isHighlighted ? 3 : 1.5,
+        }}
       />
       <EdgeLabelRenderer>
         {/* The label layer ignores pointer events by default, so re-enable them. */}

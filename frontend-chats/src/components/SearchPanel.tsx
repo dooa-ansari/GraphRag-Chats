@@ -49,10 +49,13 @@ function SearchPanel({
   graphId,
   open,
   onClose,
+  onResult,
 }: {
   graphId: string
   open: boolean
   onClose: () => void
+  // Reports each search's results up, so the canvas can highlight them.
+  onResult?: (results: SearchResultNode[]) => void
 }) {
   const [history, setHistory] = useState<HistoryEntry[]>([])
   const [query, setQuery] = useState('')
@@ -91,6 +94,7 @@ function SearchPanel({
           answer: response.answer,
         },
       ])
+      onResult?.(response.results)
     } catch (error) {
       setHistory((current) => [
         ...current,

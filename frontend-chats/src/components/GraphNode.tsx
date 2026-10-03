@@ -1,5 +1,6 @@
 import { useContext } from 'react'
 import { Handle, Position, useReactFlow, type NodeProps } from '@xyflow/react'
+import { HighlightContext } from '../HighlightContext'
 import { LinkContext } from '../LinkContext'
 import {
   CHILD_HANDLE_ID,
@@ -30,6 +31,10 @@ function GraphNode({ id, data }: NodeProps<GraphNodeType>) {
   const { linking, toggleLink } = useContext(LinkContext)
   const linkingHere = linking?.nodeId === id
   const isLinkTarget = linking !== null && !linkingHere
+
+  const { matchedNodeIds, neighborNodeIds } = useContext(HighlightContext)
+  const isMatched = matchedNodeIds.has(id)
+  const isNeighbor = !isMatched && neighborNodeIds.has(id)
 
   const update = (patch: Partial<GraphNodeData>) => updateNodeData(id, patch)
 
@@ -66,10 +71,14 @@ function GraphNode({ id, data }: NodeProps<GraphNodeType>) {
 
   return (
     <div
-      className={`relative w-64 rounded-lg border bg-white p-3 text-left shadow-sm ${
-        isLinkTarget
-          ? 'cursor-pointer border-primary-600 ring-2 ring-primary-300'
-          : 'border-primary-300'
+      className={`relative w-64 rounded-lg border bg-white p-3 text-left shadow-sm transition-shadow ${
+        isMatched
+          ? 'border-primary-500 ring-4 ring-primary-300'
+          : isNeighbor
+            ? 'border-secondary-500 ring-4 ring-secondary-300'
+            : isLinkTarget
+              ? 'cursor-pointer border-primary-600 ring-2 ring-primary-300'
+              : 'border-primary-300'
       }`}
     >
       {/* Larger than the default so it's easy to drop a dragged connection on. */}

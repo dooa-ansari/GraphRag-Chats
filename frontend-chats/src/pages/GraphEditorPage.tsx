@@ -7,6 +7,7 @@ import {
   Panel,
   useNodesState,
   useEdgesState,
+  useReactFlow,
   type Connection,
 } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
@@ -20,7 +21,9 @@ import {
   saveGraph as apiSaveGraph,
   saveGraphText,
   type GraphExport,
+  type SearchResultNode,
 } from '../api'
+import { HighlightContext, type HighlightContextValue } from '../HighlightContext'
 import { LinkContext, type LinkContextValue, type LinkDirection } from '../LinkContext'
 import {
   IN_BOTTOM_HANDLE_ID,
@@ -42,6 +45,17 @@ const nodeTypes = { graph: GraphNode }
 const edgeTypes = { relationship: RelationshipEdge }
 
 const AUTOSAVE_SECONDS = 15
+
+// Pans/zooms to frame a search's highlighted nodes. Rendered inside <ReactFlow>
+// since useReactFlow only works in its descendants.
+function FitViewToHighlight({ nodeIds }: { nodeIds: string[] }) {
+  const { fitView } = useReactFlow()
+  useEffect(() => {
+    if (nodeIds.length === 0) return
+    fitView({ nodes: nodeIds.map((nodeId) => ({ id: nodeId })), padding: 0.3, duration: 400 })
+  }, [nodeIds, fitView])
+  return null
+}
 
 function GraphEditorPage() {
   // Route is /graphs/new for a blank canvas, or /graphs/:id for a saved one.
@@ -106,6 +120,9 @@ function GraphEditorPage() {
       setGeneratedText(null)
       setEmbeddedNodeCount(null)
       setLoadState(null)
+      setMatchedNodeIds(new Set())
+      setNeighborNodeIds(new Set())
+      setHighlightedEdgeIds(new Set())
       baselineSnapshotRef.current = lastSeenSnapshotRef.current = snapshotContent(
         [],
         [],
@@ -130,6 +147,9 @@ function GraphEditorPage() {
         setEmbeddedNodeCount(embeddedNodes.length)
         setEmbeddingDimensions(embeddedNodes[0]?.embeddingDimensions ?? null)
         setLoadState(null)
+        setMatchedNodeIds(new Set())
+        setNeighborNodeIds(new Set())
+        setHighlightedEdgeIds(new Set())
         baselineSnapshotRef.current = lastSeenSnapshotRef.current = snapshotContent(
           loadedNodes,
           loadedEdges,
@@ -399,6 +419,60 @@ function GraphEditorPage() {
 
   const [searchOpen, setSearchOpen] = useState(false)
 
+  // Highlighting the traversal: matched nodes (vector search), the neighbors
+  // pulled in only via the live Neo4j traversal from them, and the edges
+  // actually walked between them.
+  const [matchedNodeIds, setMatchedNodeIds] = useState<Set<string>>(new Set())
+  const [neighborNodeIds, setNeighborNodeIds] = useState<Set<string>>(new Set())
+  const [highlightedEdgeIds, setHighlightedEdgeIds] = useState<Set<string>>(new Set())
+
+  const highlightContext = useMemo<HighlightContextValue>(
+    () => ({ matchedNodeIds, neighborNodeIds, highlightedEdgeIds }),
+    [matchedNodeIds, neighborNodeIds, highlightedEdgeIds],
+  )
+  const highlightedIds = useMemo(
+    () => [...matchedNodeIds, ...neighborNodeIds],
+    [matchedNodeIds, neighborNodeIds],
+  )
+
+  const clearHighlight = useCallback(() => {
+    setMatchedNodeIds(new Set())
+    setNeighborNodeIds(new Set())
+    setHighlightedEdgeIds(new Set())
+  }, [])
+
+  const handleSearchResult = useCallback(
+    (results: SearchResultNode[]) => {
+      const matched = new Set(results.map((result) => result.id))
+      const neighbors = new Set<string>()
+      // Edges are matched by (source, target, relationship) since a node pair
+      // can have several edges with different relationship labels.
+      const edgeKeys = new Set<string>()
+      for (const result of results) {
+        for (const rel of result.relationships) {
+          if (!matched.has(rel.otherId)) neighbors.add(rel.otherId)
+          const [source, target] =
+            rel.direction === 'outgoing'
+              ? [result.id, rel.otherId]
+              : [rel.otherId, result.id]
+          edgeKeys.add(`${source}|${target}|${rel.relationship}`)
+        }
+      }
+      setMatchedNodeIds(matched)
+      setNeighborNodeIds(neighbors)
+      setHighlightedEdgeIds(
+        new Set(
+          edges
+            .filter((edge) =>
+              edgeKeys.has(`${edge.source}|${edge.target}|${edge.data?.relationship ?? ''}`),
+            )
+            .map((edge) => edge.id),
+        ),
+      )
+    },
+    [edges],
+  )
+
   if (loadState?.status === 'loading') {
     return (
       <div className="flex h-full w-full items-center justify-center text-gray-500">
@@ -421,170 +495,173 @@ function GraphEditorPage() {
   return (
     <div style={{ height: '100%', width: '100%' }}>
       <LinkContext.Provider value={linkContext}>
-        <ReactFlow
-          nodes={nodes}
-          edges={edges}
-          nodeTypes={nodeTypes}
-          edgeTypes={edgeTypes}
-          onNodesChange={onNodesChange}
-          onEdgesChange={onEdgesChange}
-          onConnect={onConnect}
-          isValidConnection={isValidConnection}
-          onNodeClick={onNodeClick}
-          onPaneClick={() => setLinking(null)}
-        >
-          <Panel position="top-left" className="flex flex-col items-start gap-2">
-            <div className="flex flex-wrap items-center gap-2">
-              <Link
-                to="/"
-                className="inline-flex items-center rounded-md px-3 py-2 text-sm font-medium text-primary-700 hover:bg-primary-50"
-              >
-                ← All graphs
-              </Link>
-              {/* Only needed for a graph's first node — the rest use the node's own "+". */}
-              {nodes.length === 0 && <Button onClick={addNode}>Add node</Button>}
-
-              <input
-                value={graphName}
-                onChange={(e) => setGraphName(e.target.value)}
-                placeholder="Graph name"
-                aria-label="Graph name"
-                className="rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-800 placeholder:text-gray-400 focus:border-primary-500 focus:outline-none"
-              />
-              <Button
-                variant="secondary"
-                onClick={saveGraph}
-                disabled={saveState?.status === 'saving' || !graphName.trim()}
-              >
-                {saveState?.status === 'saving'
-                  ? 'Saving…'
-                  : autosaveCountdown !== null
-                    ? `Autosaving in ${autosaveCountdown}s…`
-                    : 'Save graph'}
-              </Button>
-
-              {saveState && saveState.status !== 'saving' && (
-                <span
-                  className={`rounded-md px-3 py-2 text-sm ${
-                    saveState.status === 'success'
-                      ? 'bg-secondary-100 text-secondary-700'
-                      : 'bg-red-100 text-red-700'
-                  }`}
+        <HighlightContext.Provider value={highlightContext}>
+          <ReactFlow
+            nodes={nodes}
+            edges={edges}
+            nodeTypes={nodeTypes}
+            edgeTypes={edgeTypes}
+            onNodesChange={onNodesChange}
+            onEdgesChange={onEdgesChange}
+            onConnect={onConnect}
+            isValidConnection={isValidConnection}
+            onNodeClick={onNodeClick}
+            onPaneClick={() => setLinking(null)}
+          >
+            <Panel position="top-left" className="flex flex-col items-start gap-2">
+              <div className="flex flex-wrap items-center gap-2">
+                <Link
+                  to="/"
+                  className="inline-flex items-center rounded-md px-3 py-2 text-sm font-medium text-primary-700 hover:bg-primary-50"
                 >
-                  {saveState.message}
-                </span>
-              )}
-            </div>
-
-            {linking && (
-              <span className="rounded-md bg-primary-100 px-3 py-2 text-sm text-primary-700">
-                {linking.direction === 'up'
-                  ? 'Click the node this one points back to'
-                  : 'Click the node to connect to'}{' '}
-                (Esc to cancel)
-              </span>
-            )}
-          </Panel>
-
-          {/* Search pipeline: text → embeddings → search. */}
-          {!isNew && (
-            <Panel position="bottom-center" className="mb-4">
-              <div className="flex flex-wrap items-center justify-center gap-2 rounded-lg border border-primary-200 bg-white px-3 py-2 shadow-lg">
-                <span className="text-xs font-semibold tracking-wide text-gray-400 uppercase">
-                  Prepare for search
-                </span>
-
-                <div className="flex items-center gap-1.5">
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={generateText}
-                    disabled={nodes.length === 0 || textState?.status === 'generating'}
-                  >
-                    {textState?.status === 'generating'
-                      ? 'Generating…'
-                      : generatedText
-                        ? 'Regenerate text'
-                        : 'Generate text'}
-                  </Button>
-                  {/* Only once there's something to view — not just disabled. */}
-                  {generatedText && (
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={() => setTextModalOpen(true)}
-                    >
-                      View text
-                    </Button>
-                  )}
-                </div>
-
-                <span className="text-gray-300">→</span>
-
-                <div className="flex items-center gap-1.5">
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={generateEmbeddingsForGraph}
-                    disabled={
-                      nodes.length === 0 || embeddingState?.status === 'generating'
-                    }
-                  >
-                    {embeddingState?.status === 'generating'
-                      ? 'Generating…'
-                      : embeddedNodeCount
-                        ? 'Regenerate embeddings'
-                        : 'Generate embeddings'}
-                  </Button>
-                  {/* Hidden while a fresh success message already says the same thing. */}
-                  {!!embeddedNodeCount && embeddingState?.status !== 'success' && (
-                    <span
-                      className="rounded-full bg-secondary-100 px-2 py-0.5 text-xs font-medium text-secondary-700"
-                      title={
-                        embeddingDimensions
-                          ? `${embeddingDimensions} dimensions each`
-                          : undefined
-                      }
-                    >
-                      {embeddedNodeCount} embedded
-                    </span>
-                  )}
-                </div>
-
-                <span className="text-gray-300">→</span>
-
-                <Button variant="secondary" onClick={() => setSearchOpen(true)}>
-                  Search
+                  ← All graphs
+                </Link>
+                {/* Only needed for a graph's first node — the rest use the node's own "+". */}
+                {nodes.length === 0 && <Button onClick={addNode}>Add node</Button>}
+  
+                <input
+                  value={graphName}
+                  onChange={(e) => setGraphName(e.target.value)}
+                  placeholder="Graph name"
+                  aria-label="Graph name"
+                  className="rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-800 placeholder:text-gray-400 focus:border-primary-500 focus:outline-none"
+                />
+                <Button
+                  variant="secondary"
+                  onClick={saveGraph}
+                  disabled={saveState?.status === 'saving' || !graphName.trim()}
+                >
+                  {saveState?.status === 'saving'
+                    ? 'Saving…'
+                    : autosaveCountdown !== null
+                      ? `Autosaving in ${autosaveCountdown}s…`
+                      : 'Save graph'}
                 </Button>
-
-                {textState && textState.status !== 'generating' && (
+  
+                {saveState && saveState.status !== 'saving' && (
                   <span
                     className={`rounded-md px-3 py-2 text-sm ${
-                      textState.status === 'success'
+                      saveState.status === 'success'
                         ? 'bg-secondary-100 text-secondary-700'
                         : 'bg-red-100 text-red-700'
                     }`}
                   >
-                    {textState.message}
-                  </span>
-                )}
-                {embeddingState && embeddingState.status !== 'generating' && (
-                  <span
-                    className={`rounded-md px-3 py-2 text-sm ${
-                      embeddingState.status === 'success'
-                        ? 'bg-secondary-100 text-secondary-700'
-                        : 'bg-red-100 text-red-700'
-                    }`}
-                  >
-                    {embeddingState.message}
+                    {saveState.message}
                   </span>
                 )}
               </div>
+  
+              {linking && (
+                <span className="rounded-md bg-primary-100 px-3 py-2 text-sm text-primary-700">
+                  {linking.direction === 'up'
+                    ? 'Click the node this one points back to'
+                    : 'Click the node to connect to'}{' '}
+                  (Esc to cancel)
+                </span>
+              )}
             </Panel>
-          )}
-          <Background />
-          <Controls />
-        </ReactFlow>
+  
+            {/* Search pipeline: text → embeddings → search. */}
+            {!isNew && (
+              <Panel position="bottom-center" className="mb-4">
+                <div className="flex flex-wrap items-center justify-center gap-2 rounded-lg border border-primary-200 bg-white px-3 py-2 shadow-lg">
+                  <span className="text-xs font-semibold tracking-wide text-gray-400 uppercase">
+                    Prepare for search
+                  </span>
+  
+                  <div className="flex items-center gap-1.5">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={generateText}
+                      disabled={nodes.length === 0 || textState?.status === 'generating'}
+                    >
+                      {textState?.status === 'generating'
+                        ? 'Generating…'
+                        : generatedText
+                          ? 'Regenerate text'
+                          : 'Generate text'}
+                    </Button>
+                    {/* Only once there's something to view — not just disabled. */}
+                    {generatedText && (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => setTextModalOpen(true)}
+                      >
+                        View text
+                      </Button>
+                    )}
+                  </div>
+  
+                  <span className="text-gray-300">→</span>
+  
+                  <div className="flex items-center gap-1.5">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={generateEmbeddingsForGraph}
+                      disabled={
+                        nodes.length === 0 || embeddingState?.status === 'generating'
+                      }
+                    >
+                      {embeddingState?.status === 'generating'
+                        ? 'Generating…'
+                        : embeddedNodeCount
+                          ? 'Regenerate embeddings'
+                          : 'Generate embeddings'}
+                    </Button>
+                    {/* Hidden while a fresh success message already says the same thing. */}
+                    {!!embeddedNodeCount && embeddingState?.status !== 'success' && (
+                      <span
+                        className="rounded-full bg-secondary-100 px-2 py-0.5 text-xs font-medium text-secondary-700"
+                        title={
+                          embeddingDimensions
+                            ? `${embeddingDimensions} dimensions each`
+                            : undefined
+                        }
+                      >
+                        {embeddedNodeCount} embedded
+                      </span>
+                    )}
+                  </div>
+  
+                  <span className="text-gray-300">→</span>
+  
+                  <Button variant="secondary" onClick={() => setSearchOpen(true)}>
+                    Search
+                  </Button>
+  
+                  {textState && textState.status !== 'generating' && (
+                    <span
+                      className={`rounded-md px-3 py-2 text-sm ${
+                        textState.status === 'success'
+                          ? 'bg-secondary-100 text-secondary-700'
+                          : 'bg-red-100 text-red-700'
+                      }`}
+                    >
+                      {textState.message}
+                    </span>
+                  )}
+                  {embeddingState && embeddingState.status !== 'generating' && (
+                    <span
+                      className={`rounded-md px-3 py-2 text-sm ${
+                        embeddingState.status === 'success'
+                          ? 'bg-secondary-100 text-secondary-700'
+                          : 'bg-red-100 text-red-700'
+                      }`}
+                    >
+                      {embeddingState.message}
+                    </span>
+                  )}
+                </div>
+              </Panel>
+            )}
+            <FitViewToHighlight nodeIds={highlightedIds} />
+            <Background />
+            <Controls />
+          </ReactFlow>
+        </HighlightContext.Provider>
       </LinkContext.Provider>
 
       {textModalOpen && generatedText && (
@@ -624,7 +701,15 @@ function GraphEditorPage() {
       )}
 
       {!isNew && id && (
-        <SearchPanel graphId={id} open={searchOpen} onClose={() => setSearchOpen(false)} />
+        <SearchPanel
+          graphId={id}
+          open={searchOpen}
+          onClose={() => {
+            setSearchOpen(false)
+            clearHighlight()
+          }}
+          onResult={handleSearchResult}
+        />
       )}
     </div>
   )
