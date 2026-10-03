@@ -100,6 +100,35 @@ def test_search_rejects_blank_query(client):
     assert response.status_code == 422
 
 
+@pytest.mark.parametrize("limit", [0, -1, 51, 2_000_000_000])
+def test_search_rejects_limit_outside_1_to_50(client, limit):
+    # A client-supplied `limit` feeds directly into Neo4j's vector overfetch
+    # (limit * 10) and a Cypher LIMIT clause, which rejects negative values
+    # with an unhandled error rather than a clean 4xx — so this is bounded
+    # at the schema level instead.
+    response = client.post("/graphs/g1/search", json={"query": "hello", "limit": limit})
+    assert response.status_code == 422
+
+
+def test_save_graph_rejects_a_node_name_over_the_length_limit(client):
+    response = client.post(
+        "/graphs",
+        json={
+            "name": "My Graph",
+            "nodes": [
+                {
+                    "id": "n1",
+                    "type": "graph",
+                    "position": {"x": 0, "y": 0},
+                    "data": {"name": "x" * 201, "type": "Person", "properties": []},
+                }
+            ],
+            "edges": [],
+        },
+    )
+    assert response.status_code == 422
+
+
 def test_search_missing_graph_is_404(client, monkeypatch):
     monkeypatch.setattr(
         openrouter_client, "generate_embeddings", AsyncMock(return_value=[[0.1]])

@@ -1,3 +1,13 @@
+# SECURITY: nothing in this stack has authentication — not the backend API,
+# not the frontend. Every port below is published to 0.0.0.0 (reachable from
+# outside this machine, not just localhost) and Neo4j falls back to a
+# well-known placeholder password if NEO4J_PASSWORD isn't set in .env.
+# That's fine for local development, but do not run this on a host whose
+# ports are reachable from an untrusted network (a cloud VM with open
+# inbound rules, a shared LAN, etc.) without putting it behind your own
+# auth/VPN/reverse proxy — anyone who can reach these ports can read, edit
+# or delete every saved graph, browse the Neo4j database directly, and run
+# up your OpenRouter bill.
 services:
   neo4j:
     image: neo4j:5-community

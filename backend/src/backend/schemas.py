@@ -3,7 +3,14 @@ Flow graph shape (see frontend-chats/src/graph.ts)."""
 
 from typing import Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
+
+# Generous but finite bounds on free-text input: large enough that no
+# legitimate graph/query hits them, small enough that one request can't
+# stuff megabytes of text into Neo4j or an OpenRouter call.
+_SHORT_TEXT = 200
+_MEDIUM_TEXT = 2_000
+_LONG_TEXT = 20_000
 
 
 class Position(BaseModel):
@@ -12,20 +19,20 @@ class Position(BaseModel):
 
 
 class NodeProperty(BaseModel):
-    name: str
-    value: str
+    name: str = Field(max_length=_SHORT_TEXT)
+    value: str = Field(max_length=_MEDIUM_TEXT)
 
 
 class GraphNodeData(BaseModel):
-    name: str
-    type: str
-    description: str | None = None
-    properties: list[NodeProperty] = []
+    name: str = Field(max_length=_SHORT_TEXT)
+    type: str = Field(max_length=_SHORT_TEXT)
+    description: str | None = Field(default=None, max_length=_MEDIUM_TEXT)
+    properties: list[NodeProperty] = Field(default=[], max_length=200)
 
 
 class GraphNode(BaseModel):
-    id: str
-    type: str
+    id: str = Field(max_length=_SHORT_TEXT)
+    type: str = Field(max_length=_SHORT_TEXT)
     position: Position
     data: GraphNodeData
     # Length of the stored embedding vector, not the vector itself. Response-only.
@@ -33,23 +40,23 @@ class GraphNode(BaseModel):
 
 
 class GraphEdge(BaseModel):
-    id: str
-    source: str
-    target: str
-    relationship: str = ""
+    id: str = Field(max_length=_SHORT_TEXT)
+    source: str = Field(max_length=_SHORT_TEXT)
+    target: str = Field(max_length=_SHORT_TEXT)
+    relationship: str = Field(default="", max_length=_SHORT_TEXT)
     bend: Position | None = None
     # Which node handle the edge is attached to (e.g. "+" vs the "↑" reverse-link).
-    sourceHandle: str | None = None
-    targetHandle: str | None = None
+    sourceHandle: str | None = Field(default=None, max_length=_SHORT_TEXT)
+    targetHandle: str | None = Field(default=None, max_length=_SHORT_TEXT)
 
 
 class GraphPayload(BaseModel):
-    nodes: list[GraphNode]
-    edges: list[GraphEdge]
+    nodes: list[GraphNode] = Field(max_length=5_000)
+    edges: list[GraphEdge] = Field(max_length=20_000)
 
 
 class SaveGraphRequest(GraphPayload):
-    name: str
+    name: str = Field(max_length=_SHORT_TEXT)
 
 
 class NamedGraphPayload(GraphPayload):
@@ -78,7 +85,7 @@ class SavedGraphSummary(BaseModel):
 
 
 class SaveTextRequest(BaseModel):
-    text: str
+    text: str = Field(max_length=_LONG_TEXT)
 
 
 class SaveTextResponse(BaseModel):
@@ -89,12 +96,14 @@ class SaveTextResponse(BaseModel):
 class NodeText(BaseModel):
     """One node's embedding input: its id and its humanized text."""
 
-    id: str
-    text: str
+    id: str = Field(max_length=_SHORT_TEXT)
+    # The embedding model's own input limit is ~512 tokens (see
+    # openrouter_client.EMBEDDING_MODEL) — this is a generous superset of that.
+    text: str = Field(max_length=_MEDIUM_TEXT)
 
 
 class GenerateEmbeddingsRequest(BaseModel):
-    nodes: list[NodeText]
+    nodes: list[NodeText] = Field(max_length=5_000)
 
 
 class GenerateEmbeddingsResponse(BaseModel):
@@ -105,8 +114,11 @@ class GenerateEmbeddingsResponse(BaseModel):
 
 
 class SearchRequest(BaseModel):
-    query: str
-    limit: int = 5
+    query: str = Field(max_length=_MEDIUM_TEXT)
+    # Bounded so a client can't force an extremely expensive Neo4j vector
+    # overfetch (search_graph_nodes multiplies this by 10) or a negative
+    # Cypher LIMIT, which Neo4j rejects with an unhandled error.
+    limit: int = Field(default=5, ge=1, le=50)
 
 
 class RelationshipFact(BaseModel):
