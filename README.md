@@ -157,3 +157,7 @@ Set in `.env` (copy from `.env.example`; gitignored):
 | `FRONTEND_PORT` | `3000` | Host port for the app. |
 | `NEO4J_HTTP_PORT` | `7474` | Host port for the Neo4j Browser. |
 | `NEO4J_BOLT_PORT` | `7687` | Host port for the Bolt protocol. |
+
+## License
+
+MIT — see [LICENSE](LICENSE).

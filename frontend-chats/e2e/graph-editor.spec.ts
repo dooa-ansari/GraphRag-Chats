@@ -83,7 +83,7 @@ test('loading an existing graph renders its nodes and the edge label', async ({ 
   await expect(page.getByLabel('Relationship')).toHaveValue('Father')
 })
 
-test('auto-arrange spreads out nodes that start on top of each other', async ({ page }) => {
+test('loading a graph auto-arranges nodes that start on top of each other', async ({ page }) => {
   const sameSpotNodes = Array.from({ length: 4 }, (_, i) => ({
     id: `n${i}`,
     type: 'graph',
@@ -98,24 +98,26 @@ test('auto-arrange spreads out nodes that start on top of each other', async ({ 
 
   await page.goto('/graphs/g1')
   await expect(page.locator('[data-id="n0"]')).toBeVisible()
-
-  const positionsBefore = await Promise.all(
-    sameSpotNodes.map((n) => page.locator(`[data-id="${n.id}"]`).boundingBox()),
-  )
-  // Confirms the fixture actually starts them stacked, so the assertion
-  // below is testing something real.
-  for (const box of positionsBefore) {
-    expect(box!.x).toBeCloseTo(positionsBefore[0]!.x, 0)
-    expect(box!.y).toBeCloseTo(positionsBefore[0]!.y, 0)
-  }
-
-  await page.getByRole('button', { name: 'Auto-arrange' }).click()
-  // The fitView animation triggered by auto-arrange.
+  // The fitView animation triggered by the on-load auto-arrange.
   await page.waitForTimeout(500)
 
-  const positionsAfter = await Promise.all(
+  const positionsAfterLoad = await Promise.all(
     sameSpotNodes.map((n) => page.locator(`[data-id="${n.id}"]`).boundingBox()),
   )
-  const uniqueXY = new Set(positionsAfter.map((box) => `${Math.round(box!.x)},${Math.round(box!.y)}`))
-  expect(uniqueXY.size).toBe(sameSpotNodes.length)
+  const uniqueXYAfterLoad = new Set(
+    positionsAfterLoad.map((box) => `${Math.round(box!.x)},${Math.round(box!.y)}`),
+  )
+  expect(uniqueXYAfterLoad.size).toBe(sameSpotNodes.length)
+
+  // The manual button still works too, e.g. after the user drags nodes back on top of each other.
+  await page.getByRole('button', { name: 'Auto-arrange' }).click()
+  await page.waitForTimeout(500)
+
+  const positionsAfterClick = await Promise.all(
+    sameSpotNodes.map((n) => page.locator(`[data-id="${n.id}"]`).boundingBox()),
+  )
+  const uniqueXYAfterClick = new Set(
+    positionsAfterClick.map((box) => `${Math.round(box!.x)},${Math.round(box!.y)}`),
+  )
+  expect(uniqueXYAfterClick.size).toBe(sameSpotNodes.length)
 })

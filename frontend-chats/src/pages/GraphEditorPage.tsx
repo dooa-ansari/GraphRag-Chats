@@ -149,8 +149,9 @@ function GraphEditorPage() {
     getGraph(id)
       .then((graph) => {
         if (cancelled) return
-        const loadedNodes = graph.nodes.map(toFlowNode)
         const loadedEdges = graph.edges.map(toFlowEdge)
+        // Re-lay out on every load so nodes never open overlapping.
+        const loadedNodes = layoutGraph(graph.nodes.map(toFlowNode), loadedEdges)
         setNodes(loadedNodes)
         setEdges(loadedEdges)
         setGraphName(graph.name)
@@ -168,6 +169,7 @@ function GraphEditorPage() {
           graph.name,
         )
         setDirty(false)
+        setLayoutVersion((version) => version + 1)
       })
       .catch((error) => {
         if (cancelled) return
