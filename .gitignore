@@ -1,2 +1,9 @@
 .claude/worktrees/
 .env
+
+# Recorded demo videos (e.g. walkthrough-demo.webm) — too large/binary to
+# track in git.
+*.webm
+*.mp4
+
+.DS_Store
