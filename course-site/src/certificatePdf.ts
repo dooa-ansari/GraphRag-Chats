@@ -42,8 +42,12 @@ export async function downloadCertificatePdf(cert: Certificate): Promise<void> {
   doc.setFont('helvetica', 'bold')
   doc.setFontSize(13)
   doc.setTextColor(BLUE)
-  doc.setCharSpace(1.5)
-  doc.text('CERTIFICATE OF COMPLETION', cx, 62, { align: 'center' })
+  // jsPDF's centering ignores letter spacing, so measure the spaced width ourselves.
+  const heading = 'CERTIFICATE OF COMPLETION'
+  const spacing = 1.5
+  const headingWidth = doc.getTextWidth(heading) + spacing * (heading.length - 1)
+  doc.setCharSpace(spacing)
+  doc.text(heading, cx - headingWidth / 2, 62)
   doc.setCharSpace(0)
 
   doc.setFont('helvetica', 'normal')
