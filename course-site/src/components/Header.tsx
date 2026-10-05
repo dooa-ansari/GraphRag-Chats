@@ -4,6 +4,7 @@ import { chapters } from '../content'
 import { useProgress } from '../ProgressContext'
 import { loginEnabled } from '../supabase'
 import { toggleTheme } from '../theme'
+import { GitHubButton } from './GitHubButton'
 import { Nodey } from './Nodey'
 
 export function Header() {
@@ -27,6 +28,7 @@ export function Header() {
         </div>
         <span>{ready ? `${count} of ${total}` : `0 of ${total}`}</span>
       </div>
+      <GitHubButton place="header" />
       <button
         ref={themeBtn}
         className="icon-btn"

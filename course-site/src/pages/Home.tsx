@@ -1,4 +1,5 @@
 import { Link } from 'react-router'
+import { GitHubButton } from '../components/GitHubButton'
 import { HeroGraph } from '../components/HeroGraph'
 import { ChapterList } from '../components/ChapterList'
 import { chapters, days } from '../content'
@@ -36,6 +37,10 @@ export function Home() {
             <a className="secondary" href="#plan">
               See the 5-day plan
             </a>
+          </div>
+          <div className="gh-row rise">
+            <GitHubButton place="hero" />
+            <p className="small">The practice app is open source. A star helps other beginners find it.</p>
           </div>
         </div>
         <HeroGraph />

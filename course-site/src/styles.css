@@ -137,6 +137,17 @@ img, svg { max-width: 100%; }
 .icon-moon { display: var(--show-moon); }
 .login { background: var(--accent); color: var(--on-accent); padding: 9px 16px; font-size: 14px; border-radius: 10px; }
 .account { border: 1px solid var(--line); color: var(--ink); padding: 8px 12px; font-size: 13px; font-weight: 500; border-radius: 10px; max-width: 200px; }
+.gh-btn {
+  display: inline-flex; align-items: center; gap: 8px; text-decoration: none; font-weight: 600; font-size: 14px;
+  background: var(--ink); color: var(--bg); padding: 9px 14px; border-radius: 10px;
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+.gh-btn:hover { transform: translateY(-2px); box-shadow: 0 8px 24px color-mix(in srgb, var(--ink) 25%, transparent); }
+.gh-btn .gh-star { color: var(--tip); transition: transform 0.3s ease; }
+.gh-btn:hover .gh-star { transform: rotate(72deg) scale(1.2); }
+.gh-btn.big { font-size: 16px; padding: 14px 22px; border-radius: 12px; }
+.gh-row { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 16px; margin-top: 16px; }
+.gh-row .small { margin: 0; max-width: 32ch; }
 .account-email { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* ---------- Load-in motion (from a near-visible state) ---------- */
@@ -367,6 +378,7 @@ article h1 { font-size: clamp(32px, 5vw, 46px); letter-spacing: -0.02em; }
   .plan-chapters { columns: 1; }
   .meter { width: 64px; }
   .brand small { display: none; }
+  .gh-long { display: none; }
   .home { padding-block: 28px 64px; gap: 48px; }
 }
 
