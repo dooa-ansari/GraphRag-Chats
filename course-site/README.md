@@ -3,7 +3,7 @@
 The website for the free 5-day course that teaches applied AI with GraphRAG Chats as the practice project. It is a React site with no backend of its own:
 
 - **Chapters** are Markdown files in [`content/chapters/`](content/chapters). Every page is prerendered to its own HTML file at build time, so search engines and link previews see real titles and text.
-- **Login** is a magic link (plus a 6-digit code in the same email) handled by [Supabase](https://supabase.com). It is optional.
+- **Login** is a magic link handled by [Supabase](https://supabase.com): learners type their email and click the link we send. It is optional.
 - **Progress** is saved in the browser straight away, and synced to Supabase once the learner logs in.
 - **Visitor stats** come from [Umami Cloud](https://umami.is), which uses no cookies, so the site needs no cookie banner.
 
@@ -60,16 +60,7 @@ Chapter text in Markdown...
 1. Create a free project at [supabase.com](https://supabase.com). Pick an EU region such as Frankfurt (the privacy page says data is stored in the EU).
 2. **SQL Editor → New query**: paste [`supabase/schema.sql`](supabase/schema.sql) and run it. This creates the `course_progress` table and its row level security rules.
 3. **Authentication → URL Configuration**: set the Site URL to `https://learn.rehbarai.com` and add `https://learn.rehbarai.com/login` and `http://localhost:5173/login` to the Redirect URLs.
-4. **Authentication → Email Templates → Magic Link**: make the email include the code as well as the link, for example:
-
-   ```html
-   <h2>Log in to Applied AI for Beginners</h2>
-   <p><a href="{{ .ConfirmationURL }}">Click here to log in</a></p>
-   <p>Or type this code on the login page: <strong>{{ .Token }}</strong></p>
-   ```
-
-   Use the same text for the **Confirm signup** template, which is what first-time learners receive.
-5. **Project Settings → API**: copy the Project URL and the `anon` public key into `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY`.
+4. **Project Settings → API**: copy the Project URL and the `anon` public key into `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY`.
 
 **Sending real emails.** Supabase's built-in sender only allows a few emails an hour and is meant for testing. Before sharing the site, create a free [Resend](https://resend.com) account, verify `rehbarai.com` there (it shows a few DNS records to add at your registrar), then enter Resend's SMTP details in **Authentication → SMTP Settings** with a sender such as `hello@rehbarai.com`.
 
