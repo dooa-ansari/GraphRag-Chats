@@ -3,7 +3,7 @@ import { chapters, getChapter } from './content'
 export const SITE = {
   name: 'Rehbar AI',
   course: 'Applied AI for Beginners',
-  url: ((import.meta.env.VITE_SITE_URL as string | undefined) || 'https://learn.rehbarai.com').replace(/\/$/, ''),
+  url: ((import.meta.env.VITE_SITE_URL as string | undefined) || 'https://rehbarai.com').replace(/\/$/, ''),
   instagram: 'https://www.instagram.com/rehbar.ra/',
   repo: 'https://github.com/dooa-ansari/GraphRag-Chats',
 }
