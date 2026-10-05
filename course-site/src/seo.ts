@@ -18,7 +18,7 @@ export interface PageMeta {
 }
 
 const courseDescription =
-  'A free 5-day beginner course in applied AI: LLMs, OpenRouter, embeddings, vector search, RAG, knowledge graphs and GraphRAG, with a real open-source app to practise on.'
+  'A free 5-day beginner course in applied AI: LLMs, embeddings, vector search, RAG and GraphRAG, with a real open-source app to practise on and a certificate at the end.'
 
 function courseJsonLd() {
   return {
