@@ -15,7 +15,7 @@ export function Home() {
     <main className="home">
       <section className="hero">
         <div className="hero-copy">
-          <p className="eyebrow-line rise">Free · 5 days · 12 short chapters</p>
+          <p className="eyebrow-line rise">Free · 5 days · 12 short chapters · certificate</p>
           <h1 className="rise">
             Learn applied AI in 5 days, and build your own <span className="hl">GraphRAG</span> app.
           </h1>
@@ -53,6 +53,13 @@ export function Home() {
         <div>
           <h2>What it costs</h2>
           <p>Nothing. The practice app runs locally with Docker and uses free AI models.</p>
+        </div>
+        <div>
+          <h2>Your certificate</h2>
+          <p>
+            Finish all 12 chapters and get a certificate of completion with your name. Download it as a PDF, add it to
+            LinkedIn, and share a link anyone can check.
+          </p>
         </div>
       </section>
 
