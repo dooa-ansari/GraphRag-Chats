@@ -5,6 +5,7 @@ import { ChapterList } from '../components/ChapterList'
 import { FlowDiagram } from '../components/FlowDiagram'
 import { Markdown } from '../components/Markdown'
 import { ReadingBar } from '../components/ReadingBar'
+import { allChaptersDone } from '../certificate'
 import { chapters, getChapter } from '../content'
 import { useProgress } from '../ProgressContext'
 import { loginEnabled } from '../supabase'
@@ -31,7 +32,7 @@ export function ChapterPage() {
     celebration.current?.celebrate(
       last ? 'You finished the course!' : `Chapter ${chapter.number} done!`,
       last
-        ? 'All 12 chapters complete. Nodey is very proud of you.'
+        ? 'All 12 chapters complete. Your certificate is ready.'
         : next
           ? `${email ? 'Progress saved to your account.' : 'Progress saved on this device.'} Next up: ${next.navTitle}.`
           : 'Progress saved.',
@@ -89,6 +90,12 @@ export function ChapterPage() {
                 <p>
                   <strong>You finished this chapter.</strong>{' '}
                   {next ? 'On to the next one when you are ready.' : 'That was the last one. Well done!'}
+                  {allChaptersDone(done) && (
+                    <>
+                      {' '}
+                      <Link to="/certificate">Get your certificate</Link>.
+                    </>
+                  )}
                 </p>
                 <button type="button" className="ghost" onClick={() => markIncomplete(chapter.slug)}>
                   Mark as not done

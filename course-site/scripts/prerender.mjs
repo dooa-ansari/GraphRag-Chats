@@ -19,7 +19,7 @@ const analytics = umamiId
 
 const indexable = []
 for (const url of paths()) {
-  const { html, head } = render(url)
+  const { html, head, indexable: listed } = render(url)
   const page = template
     .replace('<!--app-head-->', head)
     .replace('<!--analytics-->', analytics)
@@ -28,7 +28,7 @@ for (const url of paths()) {
     url === '/' ? 'index.html' : url === '/404' ? '404.html' : path.join(url.slice(1), 'index.html')
   fs.mkdirSync(path.dirname(path.join(dist, file)), { recursive: true })
   fs.writeFileSync(path.join(dist, file), page)
-  if (!['/login', '/404'].includes(url)) indexable.push(url)
+  if (listed) indexable.push(url)
   console.log(`prerendered ${url} -> ${file}`)
 }
 

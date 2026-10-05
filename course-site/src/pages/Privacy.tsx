@@ -30,7 +30,11 @@ export function Privacy() {
       <ul>
         <li>your email address, to send you a login link;</li>
         <li>when you signed up and last logged in;</li>
-        <li>which chapters you marked as complete, and when.</li>
+        <li>which chapters you marked as complete, and when;</li>
+        <li>
+          if you ask for a certificate, the name you type for it. Anyone who has your certificate's link can see that
+          name, the course and the date, so they can check the certificate is real.
+        </li>
       </ul>
       <p>
         This data is kept by <a href="https://supabase.com" target="_blank" rel="noopener noreferrer">Supabase</a>, our database
@@ -40,7 +44,7 @@ export function Privacy() {
 
       <h2>Deleting your data</h2>
       <p>
-        Email <strong>{contact}</strong> from the address you log in with, and we will delete your account and progress
+        Email <strong>{contact}</strong> from the address you log in with, and we will delete your account, progress and certificate
         within 30 days. You can also clear progress on this device any time by clearing this site's data in your
         browser.
       </p>

@@ -19,5 +19,11 @@ server {
         try_files $uri $uri/index.html =404;
     }
 
+    # Certificate links (/certificate/RA-1A2B3C4D) all share one prerendered
+    # shell; the page looks the ID up in the browser.
+    location /certificate/ {
+        try_files $uri $uri/index.html /certificate/check/index.html;
+    }
+
     error_page 404 /404.html;
 }

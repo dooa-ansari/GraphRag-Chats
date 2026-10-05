@@ -18,6 +18,8 @@ describe('pageMeta', () => {
   it('keeps login and unknown pages out of search results', () => {
     expect(pageMeta('/login').noindex).toBe(true)
     expect(pageMeta('/chapters/nope').noindex).toBe(true)
+    expect(pageMeta('/certificate').noindex).toBe(true)
+    expect(pageMeta('/certificate/RA-1A2B3C4D').noindex).toBe(true)
   })
 })
 

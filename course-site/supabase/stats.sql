@@ -18,3 +18,9 @@ from auth.users u
 left join public.course_progress p on p.user_id = u.id
 group by u.email
 order by chapters_done desc;
+
+-- Certificates issued (newest first)
+select c.id, c.name, u.email, c.issued_at
+from public.certificates c
+join auth.users u on u.id = c.user_id
+order by c.issued_at desc;

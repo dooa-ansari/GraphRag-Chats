@@ -7,7 +7,7 @@ import { allPaths, headTags, pageMeta } from './seo'
 export { allPaths, SITE } from './seo'
 
 /** Renders one route to HTML for the prerender script. */
-export function render(path: string): { html: string; head: string } {
+export function render(path: string): { html: string; head: string; indexable: boolean } {
   const html = renderToString(
     <StrictMode>
       <StaticRouter location={path}>
@@ -15,7 +15,8 @@ export function render(path: string): { html: string; head: string } {
       </StaticRouter>
     </StrictMode>,
   )
-  return { html, head: headTags(pageMeta(path)) }
+  const meta = pageMeta(path)
+  return { html, head: headTags(meta), indexable: !meta.noindex }
 }
 
 export const paths = allPaths
