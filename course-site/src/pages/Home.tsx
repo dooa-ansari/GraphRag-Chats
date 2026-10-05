@@ -25,8 +25,8 @@ export function Home() {
           </p>
           <div className="cta-row rise">
             {finished ? (
-              <Link className="primary" to="/chapters/capstone">
-                You finished the course. Revisit the capstone
+              <Link className="primary" to="/certificate">
+                You finished the course. Get your certificate
               </Link>
             ) : (
               <Link className="primary" to={`/chapters/${next!.slug}`}>

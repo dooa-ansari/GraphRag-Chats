@@ -1,6 +1,8 @@
 import { Route, Routes } from 'react-router'
 import { Footer } from './components/Footer'
 import { Header } from './components/Header'
+import { CertificateCheck } from './pages/CertificateCheck'
+import { CertificatePage } from './pages/CertificatePage'
 import { ChapterPage } from './pages/ChapterPage'
 import { Home } from './pages/Home'
 import { Login } from './pages/Login'
@@ -15,6 +17,8 @@ function Pages() {
     <Routes>
       <Route path="/" element={<Home />} />
       <Route path="/chapters/:slug" element={<ChapterPage />} />
+      <Route path="/certificate" element={<CertificatePage />} />
+      <Route path="/certificate/:id" element={<CertificateCheck />} />
       <Route path="/login" element={<Login />} />
       <Route path="/privacy" element={<Privacy />} />
       <Route path="*" element={<NotFound />} />

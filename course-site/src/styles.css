@@ -311,6 +311,34 @@ article h1 { font-size: clamp(32px, 5vw, 46px); letter-spacing: -0.02em; }
 .login-card input:focus { outline: 2px solid var(--accent); outline-offset: 0; border-color: transparent; }
 .error { color: var(--danger); margin-top: 12px !important; }
 
+/* ---------- Certificate ---------- */
+.cert-page { max-width: 860px; margin: 0 auto; padding-inline: 16px; padding-block: 48px 80px; display: grid; gap: 20px; }
+.cert-page h1 { font-size: 40px; }
+.cert-page .lede { margin: 0; }
+.cert-page .small { margin: 0; }
+.cert-card {
+  position: relative; text-align: center; padding: 40px 28px 32px; border-radius: 20px;
+  background: var(--surface); border: 2px solid var(--accent); box-shadow: var(--shadow), inset 0 0 0 6px var(--surface), inset 0 0 0 7px var(--accent-soft);
+  animation: rise 0.6s ease both;
+}
+.cert-card p { margin: 0; }
+.cert-brand { position: absolute; top: 18px; left: 22px; display: flex; align-items: center; gap: 8px; font-family: var(--font-display); }
+.cert-eyebrow { margin-top: 28px !important; color: var(--accent); font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase; font-size: 14px; }
+.cert-small { color: var(--muted); margin-top: 14px !important; }
+.cert-name {
+  font-family: var(--font-display); font-weight: 700; font-size: clamp(28px, 6vw, 44px); line-height: 1.15;
+  margin: 6px auto 0 !important; padding-bottom: 10px; border-bottom: 2px solid var(--accent); width: fit-content; max-width: 100%; overflow-wrap: anywhere;
+}
+.cert-course { font-family: var(--font-display); font-weight: 700; font-size: clamp(20px, 4vw, 26px); margin-top: 4px !important; }
+.cert-meta { display: flex; justify-content: center; flex-wrap: wrap; gap: 12px 40px; margin: 28px 0 0; }
+.cert-meta dt { font-size: 12px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); }
+.cert-meta dd { margin: 2px 0 0; font-weight: 600; font-family: var(--font-mono); font-size: 15px; }
+.verified { display: inline-flex; align-items: center; gap: 8px; margin: 0; width: fit-content; padding: 8px 16px; border-radius: 99px; background: var(--done-soft); color: var(--done); font-weight: 600; }
+@media (max-width: 600px) {
+  .cert-brand { position: static; justify-content: center; }
+  .cert-eyebrow { margin-top: 16px !important; }
+}
+
 /* ---------- Footer ---------- */
 .footer { max-width: 1180px; margin: 0 auto; padding-inline: 16px; padding-block: 24px 40px; border-top: 1px solid var(--line); display: flex; flex-wrap: wrap; justify-content: space-between; gap: 12px; font-size: 14px; color: var(--muted); }
 .footer nav { display: flex; flex-wrap: wrap; gap: 16px; }

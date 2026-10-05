@@ -3,7 +3,7 @@ import { chapters, getChapter } from './content'
 export const SITE = {
   name: 'Rehbar AI',
   course: 'Applied AI for Beginners',
-  url: ((import.meta.env.VITE_SITE_URL as string | undefined) || 'https://learn.rehbarai.com').replace(/\/$/, ''),
+  url: ((import.meta.env.VITE_SITE_URL as string | undefined) || 'https://rehbarai.com').replace(/\/$/, ''),
   instagram: 'https://www.instagram.com/rehbar.ra/',
   repo: 'https://github.com/dooa-ansari/GraphRag-Chats',
 }
@@ -80,15 +80,27 @@ export function pageMeta(path: string): PageMeta {
   if (path === '/privacy') {
     return { path, title: `Privacy | ${SITE.name}`, description: `How ${SITE.name} handles your email, progress and visit data.`, image }
   }
+  if (path === '/certificate') {
+    return { path, title: `Your certificate | ${SITE.name}`, description: `Get your certificate of completion for ${SITE.course}.`, image, noindex: true }
+  }
+  if (path.startsWith('/certificate/')) {
+    return { path, title: `Certificate check | ${SITE.name}`, description: `Check a certificate of completion for ${SITE.course}.`, image, noindex: true }
+  }
   if (path === '/login') {
     return { path, title: `Log in | ${SITE.name}`, description: 'Log in with a link sent to your email to save your course progress.', image, noindex: true }
   }
   return { path, title: `Page not found | ${SITE.name}`, description: courseDescription, image, noindex: true }
 }
 
+/**
+ * Path of the shared shell nginx serves for every /certificate/<id> link
+ * (see nginx.conf.template).
+ */
+export const CERTIFICATE_SHELL = '/certificate/check'
+
 /** Every path that gets its own prerendered HTML file. */
 export function allPaths(): string[] {
-  return ['/', ...chapters.map((c) => `/chapters/${c.slug}`), '/privacy', '/login', '/404']
+  return ['/', ...chapters.map((c) => `/chapters/${c.slug}`), '/privacy', '/certificate', CERTIFICATE_SHELL, '/login', '/404']
 }
 
 const escapeHtml = (s: string) =>
