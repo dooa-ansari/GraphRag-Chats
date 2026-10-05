@@ -1,6 +1,5 @@
 import { useEffect, useState, type FormEvent } from 'react'
-import { Link, useLocation, useNavigate } from 'react-router'
-import { track } from '../analytics'
+import { Link, useLocation } from 'react-router'
 import { Nodey } from '../components/Nodey'
 import { useProgress } from '../ProgressContext'
 import { getSupabase, loginEnabled } from '../supabase'
@@ -18,11 +17,9 @@ function readReturnTo(): string {
 
 export function Login() {
   const { ready, email: signedInAs, signOut } = useProgress()
-  const navigate = useNavigate()
   const location = useLocation()
   const [email, setEmail] = useState('')
-  const [code, setCode] = useState('')
-  const [step, setStep] = useState<'email' | 'code'>('email')
+  const [step, setStep] = useState<'email' | 'sent'>('email')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [returnTo, setReturnTo] = useState('/')
@@ -88,24 +85,8 @@ export function Login() {
           : error.message,
       )
     } else {
-      setStep('code')
+      setStep('sent')
     }
-  }
-
-  const verifyCode = async (e: FormEvent) => {
-    e.preventDefault()
-    const supabase = await getSupabase()
-    if (!supabase) return
-    setBusy(true)
-    setError(null)
-    const { error } = await supabase.auth.verifyOtp({ email: email.trim(), token: code.trim(), type: 'email' })
-    setBusy(false)
-    if (error) {
-      setError('That code did not work. Check it, or send a new email.')
-      return
-    }
-    track('login', { method: 'code' })
-    navigate(returnTo)
   }
 
   return (
@@ -134,38 +115,23 @@ export function Login() {
             </button>
           </form>
         ) : (
-          <form onSubmit={verifyCode}>
+          <div className="sent">
             <h1>Check your email</h1>
             <p className="muted">
-              We sent a login link to <strong>{email}</strong>. Click it on this device, or type the 6-digit code from the
-              same email here.
+              We sent a login link to <strong>{email}</strong>. Open it on this device to log in. The link works once and
+              expires after an hour.
             </p>
-            <label htmlFor="login-code">6-digit code</label>
-            <input
-              id="login-code"
-              inputMode="numeric"
-              autoComplete="one-time-code"
-              pattern="[0-9]{6}"
-              maxLength={6}
-              required
-              value={code}
-              onChange={(e) => setCode(e.target.value.replace(/\D/g, ''))}
-              placeholder="123456"
-            />
-            <button className="primary" type="submit" disabled={busy || code.length !== 6}>
-              {busy ? 'Checking…' : 'Log in'}
-            </button>
             <p className="small">
               No email after a minute? Check your spam folder, or{' '}
               <button type="button" className="linklike" onClick={() => void sendLink()} disabled={busy}>
-                send it again
+                {busy ? 'sending…' : 'send it again'}
               </button>
               .{' '}
               <button type="button" className="linklike" onClick={() => setStep('email')}>
                 Use a different email
               </button>
             </p>
-          </form>
+          </div>
         )}
         {error && (
           <p className="error" role="alert">
