@@ -39,3 +39,23 @@ jobs:
 
       - run: npm ci
       - run: npm run test
+
+  course-site:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: course-site
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: course-site/package-lock.json
+
+      - run: npm ci
+      - run: npm run lint
+      - run: npm test
+      # Also prerenders every page, so a broken chapter file fails here.
+      - run: npm run build
