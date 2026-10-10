@@ -10,6 +10,10 @@ meaning of your question) with a **live Neo4j traversal** (reads that
 node's actual current relationships, fresh, at search time — not baked
 into the embedding) to answer questions grounded in the graph.
 
+![Demo: building a small graph, generating embeddings, and asking it a question](docs/demo.gif)
+
+*Building a 6-node "Startup team" graph, then asking "Who should I ask about a payments bug?". The canvas highlights the nodes and relationships the answer came from. (Recorded with sample data, sped up 1.5x.)*
+
 ## Features
 
 - **Visual graph editor** — [React Flow](https://reactflow.dev) canvas: add nodes with a name, type, description and arbitrary properties; connect them with labeled, directional relationships; drag edges to reshape them.
