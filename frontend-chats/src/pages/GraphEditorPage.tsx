@@ -47,6 +47,15 @@ const edgeTypes = { relationship: RelationshipEdge }
 
 const AUTOSAVE_SECONDS = 15
 
+// Order-independent fingerprint of what "Generate embeddings" would currently
+// send, so edits (including deleting a node) can be told apart from a no-op.
+function embeddingSignature(nodes: GraphNodeType[]): string {
+  return nodeEmbeddingTexts(nodes)
+    .map((target) => `${target.id}::${target.text}`)
+    .sort()
+    .join('|')
+}
+
 // Pans/zooms to frame a search's highlighted nodes. Rendered inside <ReactFlow>
 // since useReactFlow only works in its descendants.
 function FitViewToHighlight({ nodeIds }: { nodeIds: string[] }) {
@@ -118,6 +127,11 @@ function GraphEditorPage() {
   const [dirty, setDirty] = useState(false)
   const [changeVersion, setChangeVersion] = useState(0)
 
+  // What "Generate embeddings" last actually sent (or, on load, what the
+  // loaded nodes imply was sent) — compared against the live graph to flag
+  // embeddings that no longer match, e.g. after a node is edited or deleted.
+  const embeddingBaselineRef = useRef<string | null>(null)
+
   // Loading an existing graph -------------------------------------------------
 
   const [loadState, setLoadState] = useState<
@@ -131,6 +145,7 @@ function GraphEditorPage() {
       setGraphName('')
       setGeneratedText(null)
       setEmbeddedNodeCount(null)
+      embeddingBaselineRef.current = null
       setLoadState(null)
       setMatchedNodeIds(new Set())
       setNeighborNodeIds(new Set())
@@ -159,6 +174,9 @@ function GraphEditorPage() {
         const embeddedNodes = graph.nodes.filter((node) => node.embeddingDimensions)
         setEmbeddedNodeCount(embeddedNodes.length)
         setEmbeddingDimensions(embeddedNodes[0]?.embeddingDimensions ?? null)
+        // Assumes the stored embeddings matched the loaded nodes at load time —
+        // true unless the graph was edited directly outside this editor.
+        embeddingBaselineRef.current = embeddedNodes.length > 0 ? embeddingSignature(loadedNodes) : null
         setLoadState(null)
         setMatchedNodeIds(new Set())
         setNeighborNodeIds(new Set())
@@ -418,6 +436,7 @@ function GraphEditorPage() {
       const result = await generateEmbeddings(id, targets)
       setEmbeddedNodeCount(result.count)
       setEmbeddingDimensions(result.dimensions)
+      embeddingBaselineRef.current = targets.map((target) => `${target.id}::${target.text}`).sort().join('|')
       setEmbeddingState({
         status: 'success',
         message: `Generated embeddings for ${result.count} node${result.count === 1 ? '' : 's'} (${result.dimensions} dimensions each)`,
@@ -493,6 +512,13 @@ function GraphEditorPage() {
     },
     [edges],
   )
+
+  // Whether the graph has changed (edited or deleted nodes) since the text/
+  // embeddings used for search were last generated — including a load whose
+  // stored text/embeddings no longer match the current nodes.
+  const textStale = generatedText !== null && humanizeGraph(nodes) !== generatedText
+  const embeddingsStale =
+    embeddedNodeCount !== null && embeddingSignature(nodes) !== (embeddingBaselineRef.current ?? '')
 
   if (loadState?.status === 'loading') {
     return (
@@ -593,7 +619,18 @@ function GraphEditorPage() {
   
             {/* Search pipeline: text → embeddings → search. */}
             {!isNew && (
-              <Panel position="bottom-center" className="mb-4">
+              <Panel position="bottom-center" className="mb-4 flex flex-col items-center gap-2">
+                {(textStale || embeddingsStale) && (
+                  <p className="rounded-md bg-amber-100 px-3 py-1.5 text-xs font-medium text-amber-800">
+                    The graph changed since{' '}
+                    {textStale && embeddingsStale
+                      ? 'the text and embeddings were'
+                      : textStale
+                        ? 'the text was'
+                        : 'the embeddings were'}{' '}
+                    generated — regenerate {textStale && embeddingsStale ? 'both' : textStale ? 'text' : 'embeddings'} for accurate search results.
+                  </p>
+                )}
                 <div className="flex flex-wrap items-center justify-center gap-2 rounded-lg border border-primary-200 bg-white px-3 py-2 shadow-lg">
                   <span className="text-xs font-semibold tracking-wide text-gray-400 uppercase">
                     Prepare for search

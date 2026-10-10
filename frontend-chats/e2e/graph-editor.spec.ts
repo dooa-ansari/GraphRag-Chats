@@ -127,6 +127,47 @@ test('deleting a node removes it and its edges, after confirming', async ({ page
   await expect(page.locator('.react-flow__edge')).toHaveCount(0)
 })
 
+test('deleting a node flags the generated text and embeddings as stale', async ({ page }) => {
+  await mockApi(page, {
+    'GET /graphs/g1': (route) =>
+      json(route, {
+        id: 'g1',
+        name: 'Smith Family Tree',
+        // Matches what humanizeGraph() computes for the two nodes below, so
+        // nothing looks stale right after load.
+        text: 'Robert Smith is a person. James Smith is a person.',
+        nodes: [
+          {
+            id: 'robert',
+            type: 'graph',
+            position: { x: 0, y: 0 },
+            data: { name: 'Robert Smith', type: 'Person', properties: [] },
+            embeddingDimensions: 1024,
+          },
+          {
+            id: 'james',
+            type: 'graph',
+            position: { x: 400, y: 300 },
+            data: { name: 'James Smith', type: 'Person', properties: [] },
+            embeddingDimensions: 1024,
+          },
+        ],
+        edges: [
+          { id: 'e1', source: 'robert', target: 'james', relationship: 'Father' },
+        ],
+      }),
+  })
+
+  await page.goto('/graphs/g1')
+  await expect(page.locator('[data-id="robert"]')).toBeVisible()
+  await expect(page.getByText(/the graph changed since/i)).not.toBeVisible()
+
+  page.once('dialog', (dialog) => dialog.accept())
+  await page.locator('[data-id="robert"]').getByRole('button', { name: 'Delete node' }).click()
+
+  await expect(page.getByText('The graph changed since the text and embeddings were generated')).toBeVisible()
+})
+
 test('loading a graph auto-arranges nodes that start on top of each other', async ({ page }) => {
   const sameSpotNodes = Array.from({ length: 4 }, (_, i) => ({
     id: `n${i}`,
