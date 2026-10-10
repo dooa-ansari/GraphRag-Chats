@@ -26,7 +26,7 @@ const inputClass =
   'aria-invalid:border-red-500'
 
 function GraphNode({ id, data }: NodeProps<GraphNodeType>) {
-  const { getNode, getNodes, getEdges, addNodes, addEdges, updateNodeData } =
+  const { getNode, getNodes, getEdges, addNodes, addEdges, updateNodeData, deleteElements } =
     useReactFlow<GraphNodeType, GraphEdgeType>()
   const { linking, toggleLink } = useContext(LinkContext)
   const linkingHere = linking?.nodeId === id
@@ -69,6 +69,11 @@ function GraphNode({ id, data }: NodeProps<GraphNodeType>) {
     addEdges(createGraphEdge(id, child.id, { sourceHandle: CHILD_HANDLE_ID }))
   }
 
+  const deleteNode = () => {
+    if (!window.confirm(`Delete "${data.name || 'this node'}"? Its connections will be removed too.`)) return
+    void deleteElements({ nodes: [{ id }] })
+  }
+
   return (
     <div
       className={`relative w-64 rounded-lg border bg-white p-3 text-left shadow-sm transition-shadow ${
@@ -87,6 +92,16 @@ function GraphNode({ id, data }: NodeProps<GraphNodeType>) {
         position={Position.Top}
         className="size-4! border-primary-600! bg-white!"
       />
+
+      <button
+        type="button"
+        aria-label="Delete node"
+        title="Delete node"
+        onClick={deleteNode}
+        className="nodrag absolute -top-3 -right-3 flex size-6 cursor-pointer items-center justify-center rounded-full bg-white text-sm leading-none text-gray-400 shadow-sm ring-1 ring-gray-300 hover:text-red-500 hover:ring-red-300"
+      >
+        ×
+      </button>
 
       <div className="flex flex-col gap-2">
         <input
