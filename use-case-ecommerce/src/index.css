@@ -1,0 +1,45 @@
+@import "tailwindcss";
+
+/*
+ * Palette generated with the golden-ratio colour method
+ * (https://eagleworks.co.uk/colourtool/):
+ *   1. Pick a base hue — 150deg (fresh green, fits a grocery storefront).
+ *   2. Rotate by the golden angle (360 / 1.618 -> 360 - 222.5 = 137.5deg) to
+ *      get the accent hue: 150 + 137.5 = 287.5deg (violet).
+ *   3. Each hue gets a "full" swatch and a "muted" one at 60% less
+ *      saturation; --color-primary-muted / --color-accent-muted are those
+ *      two swatches verbatim. The rest of each scale (50/100/300/500/700)
+ *      extends the same hue across lightness for normal UI use (tints,
+ *      borders, hover states) — the tool itself only defines the one swatch
+ *      per variant.
+ */
+@theme {
+  /* Primary: 150deg, fresh green */
+  --color-primary-50: #f2f8f5;
+  --color-primary-100: #dbf0e6;
+  --color-primary-300: #a3dcbf;
+  --color-primary-500: #34b273;
+  --color-primary-600: #259d61;
+  --color-primary-700: #197647;
+  --color-primary-muted: #497961;
+
+  /* Accent: 150 + 137.5 = 287.5deg (golden-angle rotation), violet */
+  --color-accent-50: #f7f2f8;
+  --color-accent-100: #ebdbf0;
+  --color-accent-300: #d9b5e3;
+  --color-accent-500: #b14dcb;
+  --color-accent-600: #ae30cf;
+  --color-accent-700: #8d24a8;
+  --color-accent-muted: #92609f;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  background-color: var(--color-primary-50);
+}

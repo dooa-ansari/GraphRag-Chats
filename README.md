@@ -20,6 +20,7 @@ into the embedding) to answer questions grounded in the graph.
 - **Hybrid search** — a chat panel where each question does a Neo4j vector search for semantically matching nodes, then a live Cypher traversal for their actual relationships, then an LLM synthesizes an answer grounded in both. The canvas highlights exactly what was matched vs. traversed.
 - **Autosave** — a 15s debounced countdown saves in-progress edits so you don't lose work.
 - **Seed data** — a fresh, empty database is automatically populated with 6 example graphs on first run (see below), so there's something to open and search immediately.
+- **Use-case demo** — [`use-case-ecommerce`](use-case-ecommerce) is a standalone storefront with a single search bar, built against the "Grocery Store Catalog" seed graph, showing hybrid search applied to a real use case.
 
 ## Example seed graphs
 
@@ -62,11 +63,12 @@ docker compose up --build
 Then open:
 
 - **App**: http://localhost:3000
+- **E-commerce search demo**: http://localhost:3001
 - **Backend API**: http://localhost:8000 (docs at `/docs`)
 - **Neo4j Browser**: http://localhost:7474
 
 `docker compose up` (no extra flags) automatically layers
-`docker-compose.override.yml` on top, which bind-mounts both services'
+`docker-compose.override.yml` on top, which bind-mounts both frontends'
 source and runs them in hot-reload mode — edit a file locally and it shows
 up without rebuilding. To run the plain, production-built images instead:
 `docker compose -f docker-compose.yml up`.
@@ -126,10 +128,17 @@ frontend-chats/
     *.test.ts            Vitest unit tests
   e2e/                   Playwright E2E tests
 
+use-case-ecommerce/         Standalone storefront search demo against the
+                               "Grocery Store Catalog" seed graph
+  src/
+    api.ts                   Backend API client (resolves the catalog by name)
+    App.tsx                  Search bar + results
+    components/              SearchBar, ProductCard
+
 course-site/                 Website for the Applied AI for Beginners course
                                (see course-site/README.md)
 
-docker-compose.yml           Base stack (neo4j, backend, frontend)
+docker-compose.yml           Base stack (neo4j, backend, frontend, ecommerce)
 docker-compose.override.yml  Dev hot-reload (auto-applied by `docker compose up`)
 ```
 
@@ -158,6 +167,7 @@ Set in `.env` (copy from `.env.example`; gitignored):
 | `OPENROUTER_API_KEY` | *(empty)* | Needed for "Generate embeddings" and search; rest of the app works without it. |
 | `BACKEND_PORT` | `8000` | Host port for the API. |
 | `FRONTEND_PORT` | `3000` | Host port for the app. |
+| `ECOMMERCE_PORT` | `3001` | Host port for the e-commerce search demo. |
 | `NEO4J_HTTP_PORT` | `7474` | Host port for the Neo4j Browser. |
 | `NEO4J_BOLT_PORT` | `7687` | Host port for the Bolt protocol. |
 
