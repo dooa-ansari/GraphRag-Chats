@@ -1,5 +1,14 @@
 import { useEffect, useState } from 'react'
-import { findCatalogGraphId, listProducts, onlyProducts, searchGraph, type SearchResultNode } from './api'
+import {
+  availableFlags,
+  filterByFlags,
+  findCatalogGraphId,
+  listProducts,
+  onlyProducts,
+  searchGraph,
+  type SearchResultNode,
+} from './api'
+import FilterChips from './components/FilterChips'
 import ProductCard from './components/ProductCard'
 import SearchBar from './components/SearchBar'
 import SearchResults from './components/SearchResults'
@@ -26,6 +35,18 @@ function App() {
   const [catalog, setCatalog] = useState<CatalogState>({ status: 'loading' })
   const [products, setProducts] = useState<ProductsState>({ status: 'loading' })
   const [search, setSearch] = useState<SearchState>({ status: 'idle' })
+  const [selectedFlags, setSelectedFlags] = useState<Set<string>>(new Set())
+
+  const toggleFlag = (flag: string) =>
+    setSelectedFlags((current) => {
+      const next = new Set(current)
+      if (next.has(flag)) {
+        next.delete(flag)
+      } else {
+        next.add(flag)
+      }
+      return next
+    })
 
   useEffect(() => {
     let cancelled = false
@@ -114,13 +135,30 @@ function App() {
                 {products.message}
               </p>
             )}
-            {products.status === 'ready' && (
-              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                {products.products.map((result) => (
-                  <ProductCard key={result.id} result={result} showScore={false} />
-                ))}
-              </div>
-            )}
+            {products.status === 'ready' &&
+              (() => {
+                const filtered = filterByFlags(products.products, selectedFlags)
+                return (
+                  <>
+                    <FilterChips
+                      flags={availableFlags(products.products)}
+                      selected={selectedFlags}
+                      onToggle={toggleFlag}
+                    />
+                    {filtered.length === 0 ? (
+                      <p className="text-center text-sm text-gray-500">
+                        No products match the selected filters.
+                      </p>
+                    ) : (
+                      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                        {filtered.map((result) => (
+                          <ProductCard key={result.id} result={result} showScore={false} />
+                        ))}
+                      </div>
+                    )}
+                  </>
+                )
+              })()}
           </div>
         )}
 
@@ -136,14 +174,29 @@ function App() {
           (() => {
             // search.results keeps every matched node (categories, brands,
             // ingredients, allergens, ...) as the backend returned them —
-            // only the rendered list is narrowed to products.
+            // only the rendered list is narrowed to products, then to the
+            // selected dietary flags.
             const productMatches = onlyProducts(search.results)
-            return productMatches.length === 0 ? (
-              <p className="text-center text-sm text-gray-500">
-                No products matched "{search.query}".
-              </p>
-            ) : (
-              <SearchResults key={search.query} results={productMatches} />
+            const filtered = filterByFlags(productMatches, selectedFlags)
+            return (
+              <div className="flex flex-col gap-4">
+                <FilterChips
+                  flags={availableFlags(productMatches)}
+                  selected={selectedFlags}
+                  onToggle={toggleFlag}
+                />
+                {productMatches.length === 0 ? (
+                  <p className="text-center text-sm text-gray-500">
+                    No products matched "{search.query}".
+                  </p>
+                ) : filtered.length === 0 ? (
+                  <p className="text-center text-sm text-gray-500">
+                    No matches for "{search.query}" have the selected filters.
+                  </p>
+                ) : (
+                  <SearchResults key={search.query} results={filtered} />
+                )}
+              </div>
             )
           })()}
       </main>

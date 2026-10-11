@@ -49,6 +49,46 @@ export function onlyProducts(results: SearchResultNode[]): SearchResultNode[] {
   return results.filter((result) => result.type === PRODUCT_TYPE)
 }
 
+// Dietary flags are stored as string "true"/"false" properties (see
+// seed_data.py's PRODUCTS table) — shown as pill badges on a card, and as
+// toggleable filter chips above a product list.
+export const FLAG_LABELS: Record<string, string> = {
+  sugarFree: 'Sugar-free',
+  organic: 'Organic',
+  gmoFree: 'GMO-free',
+  seedOilFree: 'Seed-oil-free',
+  lactoseFree: 'Lactose-free',
+  dairyFree: 'Dairy-free',
+  glutenFree: 'Gluten-free',
+  cageFree: 'Cage-free',
+}
+
+export function isFlagProperty(name: string): boolean {
+  return name in FLAG_LABELS
+}
+
+function hasFlag(result: SearchResultNode, flag: string): boolean {
+  return result.properties.some((property) => property.name === flag && property.value === 'true')
+}
+
+/** Only the flags present (true, on at least one product) in this list — so chips never show up empty. */
+export function availableFlags(results: SearchResultNode[]): string[] {
+  const present = new Set<string>()
+  for (const result of results) {
+    for (const property of result.properties) {
+      if (isFlagProperty(property.name) && property.value === 'true') present.add(property.name)
+    }
+  }
+  return Object.keys(FLAG_LABELS).filter((flag) => present.has(flag))
+}
+
+/** Keeps only results that have every selected flag set. No selection -> no filtering. */
+export function filterByFlags(results: SearchResultNode[], flags: Iterable<string>): SearchResultNode[] {
+  const required = [...flags]
+  if (required.length === 0) return results
+  return results.filter((result) => required.every((flag) => hasFlag(result, flag)))
+}
+
 export type GraphNode = {
   id: string
   data: {

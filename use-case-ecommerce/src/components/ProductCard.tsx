@@ -1,18 +1,4 @@
-import type { SearchResultNode } from '../api'
-
-// Flags are stored as string "true"/"false" properties (see seed_data.py's
-// PRODUCTS table) — shown as pill badges instead of a plain name/value row.
-const FLAG_LABELS: Record<string, string> = {
-  sugarFree: 'Sugar-free',
-  organic: 'Organic',
-  gmoFree: 'GMO-free',
-  seedOilFree: 'Seed-oil-free',
-  lactoseFree: 'Lactose-free',
-}
-
-function isFlagProperty(name: string): boolean {
-  return name in FLAG_LABELS
-}
+import { FLAG_LABELS, isFlagProperty, type SearchResultNode } from '../api'
 
 function ProductCard({ result, showScore = true }: { result: SearchResultNode; showScore?: boolean }) {
   const isProduct = result.type === 'Product'
