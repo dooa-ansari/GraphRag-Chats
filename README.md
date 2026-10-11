@@ -146,9 +146,6 @@ use-case-ecommerce/         Standalone storefront search demo against the
     App.tsx                  Search bar + results
     components/              SearchBar, ProductCard
 
-course-site/                 Website for the Applied AI for Beginners course
-                               (see course-site/README.md)
-
 docker-compose.yml           Base stack (neo4j, backend, frontend, ecommerce)
 docker-compose.override.yml  Dev hot-reload (auto-applied by `docker compose up`)
 ```
