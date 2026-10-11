@@ -1,5 +1,12 @@
 # GraphRAG Chat System
 
+[![Tests](https://github.com/dooa-ansari/GraphRag-Chats/actions/workflows/test.yml/badge.svg)](https://github.com/dooa-ansari/GraphRag-Chats/actions/workflows/test.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+![React](https://img.shields.io/badge/React-19-61DAFB?logo=react&logoColor=white)
+![FastAPI](https://img.shields.io/badge/FastAPI-009688?logo=fastapi&logoColor=white)
+![Neo4j](https://img.shields.io/badge/Neo4j-5-008CC1?logo=neo4j&logoColor=white)
+![TypeScript](https://img.shields.io/badge/TypeScript-3178C6?logo=typescript&logoColor=white)
+
 Build a knowledge graph visually, then ask it questions in plain English.
 
 A full-stack app for building a graph of entities and relationships by hand
